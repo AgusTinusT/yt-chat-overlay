@@ -4947,7 +4947,7 @@ dependencies = [
 
 [[package]]
 name = "yt-chat-overlay"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "eframe",
  "global-hotkey",

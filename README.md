@@ -7,7 +7,22 @@ Overlay live chat YouTube yang ringan dan transparan, tampil di atas game. Klik 
 ## Download
 Ambil `YT-Chat-Overlay.exe` dari halaman **Releases**. Tidak perlu install, cukup jalankan. (Windows 10/11)
 
-> File `.exe` ini belum ditandatangani secara digital, jadi Windows SmartScreen bisa menampilkan peringatan saat pertama kali dibuka. Klik **More info → Run anyway**.
+> File `.exe` ini belum ditandatangani secara digital, jadi Windows bisa menampilkan peringatan saat pertama kali dibuka. Baca [Peringatan keamanan](#peringatan-keamanan-saat-download--membuka).
+
+## Peringatan keamanan saat download / membuka
+File ini aman: source code-nya terbuka, dan `.exe`-nya dibuild otomatis oleh GitHub Actions dari kode di repo ini. Peringatan muncul karena file belum ditandatangani secara digital dan masih jarang diunduh.
+
+| Yang muncul | Solusi |
+|---|---|
+| Layar biru **"Windows protected your PC"** | Klik **More info**, lalu **Run anyway** |
+| **Chrome/Edge** memblokir download | Buka daftar download (Ctrl+J), lalu pilih **Keep** / **Keep anyway** |
+| **Windows Defender** menghapus file atau menandainya sebagai virus (misalnya *Wacatac*) | Itu salah deteksi (*false positive*). Pulihkan lewat **Windows Security → Protection history → Restore**, lalu bantu laporkan ke [Microsoft](https://www.microsoft.com/en-us/wdsi/filesubmission) sebagai *Incorrectly detected* |
+
+**Cek keaslian file:** setiap Release menyertakan `SHA256SUMS.txt`. Jalankan perintah ini di PowerShell:
+```powershell
+Get-FileHash .\YT-Chat-Overlay.exe
+```
+Kolom *Hash* harus sama persis dengan angka di halaman Release. Kalau berbeda, jangan jalankan file tersebut.
 
 ## Cara pakai
 1. Jalankan `YT-Chat-Overlay.exe`. Saat pertama kali dibuka, aplikasi langsung masuk **mode edit**.

@@ -30,9 +30,37 @@ jobs:
           Copy-Item README.md dist/
           Compress-Archive -Path dist/* -DestinationPath "YT-Chat-Overlay-${{ github.ref_name }}-windows-x64.zip"
 
+      - name: Checksum SHA-256 dan catatan rilis
+        shell: pwsh
+        run: |
+          $files = @("dist/YT-Chat-Overlay.exe", "YT-Chat-Overlay-${{ github.ref_name }}-windows-x64.zip")
+          $sums = $files | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_ -Algorithm SHA256).Hash, (Split-Path $_ -Leaf) }
+          $sums | Set-Content -Encoding utf8 SHA256SUMS.txt
+          $notes = @(
+            "## Download"
+            "Unduh **YT-Chat-Overlay.exe**, lalu langsung jalankan. Tidak perlu install (Windows 10/11)."
+            ""
+            "## Muncul peringatan saat dibuka?"
+            "File ini **belum ditandatangani secara digital**, jadi Windows atau browser bisa menampilkan peringatan walaupun file-nya aman:"
+            "- **Windows protected your PC** (layar biru): klik **More info**, lalu **Run anyway**."
+            "- **Chrome/Edge memblokir download**: buka daftar download, lalu pilih **Keep** / **Keep anyway**."
+            "- **Windows Defender menghapus file**: itu salah deteksi (*false positive*). Lihat bagian *Peringatan keamanan* di README."
+            ""
+            "Source code-nya terbuka, dan file ini dibuild otomatis oleh GitHub Actions dari kode di repo ini."
+            ""
+            "## Cek keaslian file (SHA-256)"
+            '```'
+            $sums
+            '```'
+            "Di PowerShell, jalankan ``Get-FileHash .\YT-Chat-Overlay.exe``. Kolom *Hash* harus sama persis dengan angka di atas."
+          )
+          $notes | Set-Content -Encoding utf8 RELEASE_NOTES.md
+
       - uses: softprops/action-gh-release@v2
         with:
+          body_path: RELEASE_NOTES.md
           generate_release_notes: true
           files: |
             dist/YT-Chat-Overlay.exe
             YT-Chat-Overlay-${{ github.ref_name }}-windows-x64.zip
+            SHA256SUMS.txt
