@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FF6A4D"/>
+      <stop offset="1" stop-color="#E5254F"/>
+    </linearGradient>
+  </defs>
+  <!-- latar -->
+  <rect x="32" y="32" width="960" height="960" rx="220" fill="url(#bg)"/>
+  <!-- gelembung chat -->
+  <path d="M300 220 H724 A124 124 0 0 1 848 344 V596 A124 124 0 0 1 724 720 H460 L262 860 L320 720 H300 A124 124 0 0 1 176 596 V344 A124 124 0 0 1 300 220 Z" fill="#FFFFFF"/>
+  <!-- baris chat: nama berwarna + pesan -->
+  <rect x="258" y="318" width="150" height="72" rx="36" fill="#FFB020"/>
+  <rect x="436" y="318" width="330" height="72" rx="36" fill="#F5C7CE"/>
+  <rect x="258" y="434" width="120" height="72" rx="36" fill="#4C8DFF"/>
+  <rect x="406" y="434" width="270" height="72" rx="36" fill="#F5C7CE"/>
+  <rect x="258" y="550" width="170" height="72" rx="36" fill="#2DBE6C"/>
+  <rect x="456" y="550" width="310" height="72" rx="36" fill="#F5C7CE"/>
+</svg>

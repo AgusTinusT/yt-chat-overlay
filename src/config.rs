@@ -16,6 +16,9 @@ pub struct Config {
     pub hide_from_capture: bool,
     pub pos: Option<[f32; 2]>,
     pub size: [f32; 2],
+    /// Contoh format: "Ctrl+Alt+C", "Ctrl+Shift+F9", "Alt+Shift+Z"
+    pub hotkey_toggle: String,
+    pub hotkey_edit: String,
 }
 
 impl Default for Config {
@@ -26,9 +29,14 @@ impl Default for Config {
             fade_secs: 30.0,
             max_msgs: 8,
             bg_opacity: 0.55,
-            hide_from_capture: true,
+            // Mati secara bawaan: fungsi ini juga dipakai cheat untuk bersembunyi dari
+            // screenshot anti-cheat. Pakai Game Capture di OBS agar overlay tidak terekam.
+            hide_from_capture: false,
             pos: None,
             size: [400.0, 460.0],
+            // Tanpa tombol F supaya mudah di keyboard compact
+            hotkey_toggle: "Ctrl+Alt+C".into(),
+            hotkey_edit: "Ctrl+Alt+E".into(),
         }
     }
 }

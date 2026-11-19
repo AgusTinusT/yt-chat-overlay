@@ -8,18 +8,58 @@ use eframe::egui::{
     self, text::LayoutJob, vec2, Align, Align2, Color32, FontData, FontDefinitions, FontFamily,
     FontId, Frame, Layout, Margin, Rect, Sense, Stroke, TextFormat, ViewportCommand,
 };
-use global_hotkey::{
-    hotkey::{Code, HotKey, Modifiers},
-    GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState,
-};
+use global_hotkey::{hotkey::HotKey, GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use std::collections::{HashSet, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tray_icon::menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem};
+use tray_icon::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use youtube::{Event, Kind, Role};
 
+const ICON_PNG: &[u8] = include_bytes!("../assets/icon-256.png");
+
+/// Mencegah aplikasi berjalan dua kali.
+mod single_instance {
+    use windows_sys::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS, WAIT_OBJECT_0};
+    use windows_sys::Win32::System::Threading::{
+        CreateEventW, CreateMutexW, SetEvent, WaitForSingleObject,
+    };
+
+    fn wide(s: &str) -> Vec<u16> {
+        s.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+
+    /// `Some(event)` jika ini instance pertama. Jika aplikasi sudah berjalan,
+    /// instance lama diberi sinyal untuk membuka mode edit, lalu `None`.
+    pub fn acquire() -> Option<isize> {
+        unsafe {
+            let mutex = CreateMutexW(std::ptr::null(), 0, wide("Local\\YTChatOverlay.Instance").as_ptr());
+            let exists = !mutex.is_null() && GetLastError() == ERROR_ALREADY_EXISTS;
+            // Mutex sengaja tidak ditutup: dipegang sampai proses selesai.
+            let event = CreateEventW(std::ptr::null(), 0, 0, wide("Local\\YTChatOverlay.Show").as_ptr());
+            if exists {
+                if !event.is_null() {
+                    SetEvent(event);
+                }
+                None
+            } else {
+                Some(event as isize)
+            }
+        }
+    }
+
+    /// True jika instance lain meminta jendela ini ditampilkan.
+    pub fn show_requested(event: isize) -> bool {
+        event != 0 && unsafe { WaitForSingleObject(event as _, 0) == WAIT_OBJECT_0 }
+    }
+}
+
 fn main() -> eframe::Result<()> {
+    let Some(show_event) = single_instance::acquire() else {
+        return Ok(());
+    };
     let cfg = Config::load();
     let mut vp = egui::ViewportBuilder::default()
         .with_title("YT Chat Overlay")
@@ -28,16 +68,45 @@ fn main() -> eframe::Result<()> {
         .with_decorations(false)
         .with_transparent(true)
         .with_always_on_top()
+        .with_taskbar(false)
         .with_resizable(true);
     if let Some(p) = cfg.pos {
         vp = vp.with_position(p);
+    }
+    if let Ok(icon) = eframe::icon_data::from_png_bytes(ICON_PNG) {
+        vp = vp.with_icon(icon);
     }
     let options = eframe::NativeOptions { viewport: vp, ..Default::default() };
     eframe::run_native(
         "YT Chat Overlay",
         options,
-        Box::new(|cc| Ok(Box::new(App::new(cc, cfg)))),
+        Box::new(move |cc| Ok(Box::new(App::new(cc, cfg, show_event)))),
     )
+}
+
+struct Tray {
+    _icon: TrayIcon,
+    toggle: MenuId,
+    edit: MenuId,
+    quit: MenuId,
+}
+
+fn build_tray() -> Option<Tray> {
+    let toggle = MenuItem::new("Tampilkan / sembunyikan chat", true, None);
+    let edit = MenuItem::new("Mode edit (posisi && pengaturan)", true, None);
+    let quit = MenuItem::new("Keluar", true, None);
+    let menu = Menu::new();
+    menu.append_items(&[&edit, &toggle, &PredefinedMenuItem::separator(), &quit]).ok()?;
+    let data = eframe::icon_data::from_png_bytes(ICON_PNG).ok()?;
+    let icon = tray_icon::Icon::from_rgba(data.rgba, data.width, data.height).ok()?;
+    let tray = TrayIconBuilder::new()
+        .with_menu(Box::new(menu))
+        .with_menu_on_left_click(false)
+        .with_tooltip("YT Chat Overlay\nKlik: mode edit  |  Klik kanan: menu")
+        .with_icon(icon)
+        .build()
+        .ok()?;
+    Some(Tray { _icon: tray, toggle: toggle.id().clone(), edit: edit.id().clone(), quit: quit.id().clone() })
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -66,16 +135,18 @@ struct App {
     gen: Arc<AtomicU64>,
     edit: bool,
     hidden: bool,
-    _hotkeys: Option<GlobalHotKeyManager>,
-    hk_toggle: u32,
-    hk_edit: u32,
+    hotkeys: Option<GlobalHotKeyManager>,
+    reg_toggle: Option<HotKey>,
+    reg_edit: Option<HotKey>,
+    tray: Option<Tray>,
+    show_event: isize,
     hwnd: Option<isize>,
     affinity_applied: Option<bool>,
     passthrough_applied: Option<bool>,
 }
 
 impl App {
-    fn new(cc: &eframe::CreationContext, cfg: Config) -> Self {
+    fn new(cc: &eframe::CreationContext, cfg: Config, show_event: isize) -> Self {
         setup_fonts(&cc.egui_ctx);
         cc.egui_ctx.set_visuals(egui::Visuals::dark());
         let (tx, rx) = channel();
@@ -91,26 +162,23 @@ impl App {
             gen: Arc::new(AtomicU64::new(0)),
             edit: false,
             hidden: false,
-            _hotkeys: None,
-            hk_toggle: 0,
-            hk_edit: 0,
+            hotkeys: None,
+            reg_toggle: None,
+            reg_edit: None,
+            tray: build_tray(),
+            show_event,
             hwnd: None,
             affinity_applied: None,
             passthrough_applied: None,
         };
+        if app.tray.is_none() {
+            app.system("Ikon system tray gagal dibuat.");
+        }
 
         match GlobalHotKeyManager::new() {
             Ok(m) => {
-                let mods = Some(Modifiers::CONTROL | Modifiers::SHIFT);
-                let toggle = HotKey::new(mods, Code::F9);
-                let edit = HotKey::new(mods, Code::F10);
-                let ok = m.register(toggle).is_ok() & m.register(edit).is_ok();
-                app.hk_toggle = toggle.id();
-                app.hk_edit = edit.id();
-                app._hotkeys = Some(m);
-                if !ok {
-                    app.system("Hotkey gagal didaftarkan (mungkin dipakai aplikasi lain).");
-                }
+                app.hotkeys = Some(m);
+                app.register_hotkeys();
             }
             Err(e) => app.system(format!("Hotkey tidak aktif: {e}")),
         }
@@ -121,6 +189,35 @@ impl App {
             app.connect(&cc.egui_ctx);
         }
         app
+    }
+
+    /// (Ulang) daftarkan hotkey dari config. Dipanggil saat start dan saat tombol "Terapkan" diklik.
+    fn register_hotkeys(&mut self) {
+        let Some(m) = &self.hotkeys else { return };
+        for hk in [self.reg_toggle.take(), self.reg_edit.take()].into_iter().flatten() {
+            let _ = m.unregister(hk);
+        }
+        let mut errors = Vec::new();
+        let mut register = |text: &str| -> Option<HotKey> {
+            match text.trim().parse::<HotKey>() {
+                Ok(hk) if m.register(hk).is_ok() => Some(hk),
+                Ok(_) => {
+                    errors.push(format!("{text} sudah dipakai aplikasi lain"));
+                    None
+                }
+                Err(_) => {
+                    errors.push(format!("Format hotkey salah: \"{text}\""));
+                    None
+                }
+            }
+        };
+        self.reg_toggle = register(&self.cfg.hotkey_toggle);
+        self.reg_edit = register(&self.cfg.hotkey_edit);
+        if errors.is_empty() {
+            self.cfg.save();
+        } else {
+            self.system(format!("{}. Menu di system tray tetap bisa dipakai.", errors.join(". ")));
+        }
     }
 
     fn system(&mut self, text: impl Into<String>) {
@@ -343,6 +440,7 @@ impl App {
         }
 
         let (mut connect, mut sample, mut done, mut quit) = (false, false, false, false);
+        let mut apply_hk = false;
         Frame::none().inner_margin(Margin::symmetric(10.0, 6.0)).show(ui, |ui| {
             ui.label("Channel YouTube (@nama) atau link live:");
             ui.add(
@@ -360,10 +458,26 @@ impl App {
             ui.add(egui::Slider::new(&mut self.cfg.fade_secs, 0.0..=120.0).text("Hilang (detik, 0=tidak)"));
             ui.add(egui::Slider::new(&mut self.cfg.max_msgs, 1..=30).text("Jumlah pesan"));
             ui.add(egui::Slider::new(&mut self.cfg.bg_opacity, 0.0..=1.0).text("Gelap latar"));
-            ui.checkbox(&mut self.cfg.hide_from_capture, "Sembunyikan dari OBS (tidak ikut terekam)");
+            ui.checkbox(&mut self.cfg.hide_from_capture, "Sembunyikan dari Display Capture OBS")
+                .on_hover_text("Tidak perlu jika OBS memakai Game Capture.\nHindari untuk game dengan anti-cheat ketat.");
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Hotkey tampil/sembunyi:");
+                ui.add(egui::TextEdit::singleline(&mut self.cfg.hotkey_toggle).desired_width(110.0));
+            });
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Hotkey mode edit:");
+                ui.add(egui::TextEdit::singleline(&mut self.cfg.hotkey_edit).desired_width(110.0));
+                apply_hk = ui
+                    .button("Terapkan")
+                    .on_hover_text("Contoh: Ctrl+Alt+C, Alt+Shift+Z, Ctrl+Shift+F9")
+                    .clicked();
+            });
             ui.small(format!("Status: {}", self.status));
-            ui.small("Ctrl+Shift+F9 = tampil/sembunyi   |   Ctrl+Shift+F10 = mode edit");
+            ui.small("Semua menu juga ada di ikon system tray (pojok kanan bawah).");
         });
+        if apply_hk {
+            self.register_hotkeys();
+        }
         ui.separator();
         self.draw_msgs(ui);
 
@@ -412,11 +526,42 @@ impl eframe::App for App {
             if ev.state != HotKeyState::Pressed {
                 continue;
             }
-            if ev.id == self.hk_toggle {
+            if self.reg_toggle.map(|h| h.id()) == Some(ev.id) {
                 self.hidden = !self.hidden;
-            } else if ev.id == self.hk_edit {
+            } else if self.reg_edit.map(|h| h.id()) == Some(ev.id) {
                 self.set_edit(ctx, !self.edit);
             }
+        }
+
+        // Ikon system tray: klik kiri = mode edit, klik kanan = menu
+        while let Ok(ev) = TrayIconEvent::receiver().try_recv() {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = ev
+            {
+                self.set_edit(ctx, !self.edit);
+            }
+        }
+        while let Ok(ev) = MenuEvent::receiver().try_recv() {
+            let Some(t) = &self.tray else { continue };
+            if ev.id == t.toggle {
+                if self.edit {
+                    self.set_edit(ctx, false);
+                }
+                self.hidden = !self.hidden;
+            } else if ev.id == t.edit {
+                self.set_edit(ctx, true);
+            } else if ev.id == t.quit {
+                self.save_window(ctx);
+                ctx.send_viewport_cmd(ViewportCommand::Close);
+            }
+        }
+
+        // Aplikasi dibuka lagi -> tampilkan instance yang sudah berjalan
+        if single_instance::show_requested(self.show_event) {
+            self.set_edit(ctx, true);
         }
 
         self.pump_events();
@@ -470,4 +615,17 @@ fn setup_fonts(ctx: &egui::Context) {
     fonts.families.insert(FontFamily::Proportional, prop);
     fonts.families.insert(FontFamily::Name("bold".into()), bold);
     ctx.set_fonts(fonts);
+}
+
+#[cfg(test)]
+mod tests {
+    use global_hotkey::hotkey::HotKey;
+
+    #[test]
+    fn hotkey_formats_parse() {
+        for s in ["Ctrl+Alt+C", "Ctrl+Alt+E", "Ctrl+Shift+F9", "Alt+Shift+Z", "ctrl+alt+c"] {
+            assert!(s.parse::<HotKey>().is_ok(), "gagal parse {s}");
+        }
+        assert!("Ctrl+Alt+".parse::<HotKey>().is_err());
+    }
 }
