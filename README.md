@@ -66,14 +66,12 @@ Meski begitu, perlu diketahui:
 Untuk game kompetitif dengan anti-cheat kernel, sebaiknya tutup overlay saat bermain. Gunakan dengan risiko sendiri.
 
 ## Code signing policy
-Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
-
-> Status: pendaftaran ke SignPath Foundation sedang diajukan. Sampai disetujui, file `.exe` di Releases belum ditandatangani.
+> Status: file `.exe` di Releases **belum ditandatangani secara digital**. Untuk memastikan keaslian file, gunakan checksum SHA-256 (lihat [Peringatan keamanan](#peringatan-keamanan-saat-download--membuka)).
 
 - **Committers dan reviewers:** [AgusTinusT](https://github.com/AgusTinusT)
 - **Approvers:** [AgusTinusT](https://github.com/AgusTinusT)
-- Setiap file yang ditandatangani dibuild otomatis oleh GitHub Actions dari source code di repo ini. Setiap rilis disetujui secara manual oleh approver.
-- Hanya file yang dibuild dari repo ini yang ditandatangani. Tidak ada file pihak ketiga yang ikut ditandatangani.
+- Setiap file rilis dibuild otomatis oleh GitHub Actions dari source code di repo ini. Setiap rilis disetujui secara manual oleh approver.
+- Kalau nanti file sudah ditandatangani, hanya file yang dibuild dari repo ini yang akan ditandatangani.
 
 ## Privacy
 This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
