@@ -1,11 +1,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod config;
+mod i18n;
 mod packaged;
 mod update;
 mod youtube;
 
 use config::Config;
+use i18n::tr;
 use eframe::egui::{
     self, text::LayoutJob, vec2, Align, Align2, Color32, FontData, FontDefinitions, FontFamily,
     FontId, Frame, Layout, Margin, Rect, Sense, Stroke, TextFormat, ViewportCommand,
@@ -16,7 +18,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tray_icon::menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem};
+use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use youtube::{Event, Kind, Role};
 
@@ -63,6 +65,7 @@ fn main() -> eframe::Result<()> {
         return Ok(());
     };
     let cfg = Config::load();
+    i18n::set(&cfg.language);
     let mut vp = egui::ViewportBuilder::default()
         .with_title("YT Chat Overlay")
         .with_inner_size(cfg.size)
@@ -87,18 +90,32 @@ fn main() -> eframe::Result<()> {
 }
 
 struct Tray {
-    _icon: TrayIcon,
-    toggle: MenuId,
-    edit: MenuId,
-    clear: MenuId,
-    quit: MenuId,
+    icon: TrayIcon,
+    toggle: MenuItem,
+    edit: MenuItem,
+    clear: MenuItem,
+    quit: MenuItem,
+}
+
+impl Tray {
+    /// Teks menu sesuai bahasa aktif (dipanggil lagi saat bahasa diganti).
+    fn set_texts(&self) {
+        self.toggle.set_text(tr("Show / hide chat", "Tampilkan / sembunyikan chat"));
+        self.edit.set_text(tr("Edit mode (position && settings)", "Mode edit (posisi && pengaturan)"));
+        self.clear.set_text(tr("Clear chat", "Bersihkan chat"));
+        self.quit.set_text(tr("Quit", "Keluar"));
+        let _ = self.icon.set_tooltip(Some(tr(
+            "YT Chat Overlay\nClick: edit mode  |  Right-click: menu",
+            "YT Chat Overlay\nKlik: mode edit  |  Klik kanan: menu",
+        )));
+    }
 }
 
 fn build_tray() -> Option<Tray> {
-    let toggle = MenuItem::new("Tampilkan / sembunyikan chat", true, None);
-    let edit = MenuItem::new("Mode edit (posisi && pengaturan)", true, None);
-    let clear = MenuItem::new("Bersihkan chat", true, None);
-    let quit = MenuItem::new("Keluar", true, None);
+    let toggle = MenuItem::new("", true, None);
+    let edit = MenuItem::new("", true, None);
+    let clear = MenuItem::new("", true, None);
+    let quit = MenuItem::new("", true, None);
     let menu = Menu::new();
     menu.append_items(&[&edit, &toggle, &clear, &PredefinedMenuItem::separator(), &quit]).ok()?;
     let data = eframe::icon_data::from_png_bytes(ICON_PNG).ok()?;
@@ -106,17 +123,12 @@ fn build_tray() -> Option<Tray> {
     let tray = TrayIconBuilder::new()
         .with_menu(Box::new(menu))
         .with_menu_on_left_click(false)
-        .with_tooltip("YT Chat Overlay\nKlik: mode edit  |  Klik kanan: menu")
         .with_icon(icon)
         .build()
         .ok()?;
-    Some(Tray {
-        _icon: tray,
-        toggle: toggle.id().clone(),
-        edit: edit.id().clone(),
-        clear: clear.id().clone(),
-        quit: quit.id().clone(),
-    })
+    let t = Tray { icon: tray, toggle, edit, clear, quit };
+    t.set_texts();
+    Some(t)
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -166,7 +178,7 @@ impl App {
         let mut app = App {
             input_buf: cfg.input.clone(),
             cfg,
-            status: "Belum terhubung".into(),
+            status: tr("Not connected", "Belum terhubung").into(),
             msgs: VecDeque::new(),
             seen: HashSet::new(),
             seen_order: VecDeque::new(),
@@ -191,7 +203,7 @@ impl App {
             app.latest = Some(update::spawn_check(cc.egui_ctx.clone()));
         }
         if app.tray.is_none() {
-            app.system("Ikon system tray gagal dibuat.");
+            app.system(tr("Could not create the system tray icon.", "Ikon system tray gagal dibuat."));
         }
 
         match GlobalHotKeyManager::new() {
@@ -199,7 +211,7 @@ impl App {
                 app.hotkeys = Some(m);
                 app.register_hotkeys();
             }
-            Err(e) => app.system(format!("Hotkey tidak aktif: {e}")),
+            Err(e) => app.system(format!("{}: {e}", tr("Hotkeys unavailable", "Hotkey tidak aktif"))),
         }
 
         if app.cfg.input.trim().is_empty() {
@@ -221,11 +233,11 @@ impl App {
             match text.trim().parse::<HotKey>() {
                 Ok(hk) if m.register(hk).is_ok() => Some(hk),
                 Ok(_) => {
-                    errors.push(format!("{text} sudah dipakai aplikasi lain"));
+                    errors.push(format!("{text} {}", tr("is already used by another app", "sudah dipakai aplikasi lain")));
                     None
                 }
                 Err(_) => {
-                    errors.push(format!("Format hotkey salah: \"{text}\""));
+                    errors.push(format!("{}: \"{text}\"", tr("Invalid hotkey format", "Format hotkey salah")));
                     None
                 }
             }
@@ -235,7 +247,11 @@ impl App {
         if errors.is_empty() {
             self.cfg.save();
         } else {
-            self.system(format!("{}. Menu di system tray tetap bisa dipakai.", errors.join(". ")));
+            self.system(format!(
+                "{}. {}",
+                errors.join(". "),
+                tr("The system tray menu still works.", "Menu di system tray tetap bisa dipakai.")
+            ));
         }
     }
 
@@ -256,7 +272,7 @@ impl App {
         self.cfg.save();
         self.seen.clear();
         self.seen_order.clear();
-        self.system("Menghubungkan...");
+        self.system(tr("Connecting...", "Menghubungkan..."));
         youtube::spawn(self.cfg.input.clone(), gen, self.gen.clone(), self.tx.clone(), ctx.clone());
     }
 
@@ -302,7 +318,11 @@ impl App {
         }
         if let Some(v) = self.new_version() {
             self.update_notified = true;
-            self.system(format!("Versi baru {v} tersedia. Buka mode edit untuk mengunduh."));
+            self.system(format!(
+                "{} {v} {}",
+                tr("New version", "Versi baru"),
+                tr("is available. Open edit mode to download it.", "tersedia. Buka mode edit untuk mengunduh.")
+            ));
         }
     }
 
@@ -370,9 +390,10 @@ impl App {
     fn add_samples(&mut self) {
         let now = Instant::now();
         let samples = [
-            ("Budi", "Halo bang, mainnya keren!", None, MsgKind::Chat(Kind::Text, Role::Normal)),
-            ("Sari", "Ini game apa ya namanya?", None, MsgKind::Chat(Kind::Text, Role::Member)),
-            ("ModRian", "Jangan spam ya teman-teman", None, MsgKind::Chat(Kind::Text, Role::Moderator)),            ("Andi", "Semangat streamnya!", Some("Rp20.000"), MsgKind::Chat(Kind::Paid, Role::Normal)),
+            ("Budi", tr("Hi! Great gameplay!", "Halo bang, mainnya keren!"), None, MsgKind::Chat(Kind::Text, Role::Normal)),
+            ("Sari", tr("What game is this?", "Ini game apa ya namanya?"), None, MsgKind::Chat(Kind::Text, Role::Member)),
+            ("ModRian", tr("No spamming, please", "Jangan spam ya teman-teman"), None, MsgKind::Chat(Kind::Text, Role::Moderator)),
+            ("Andi", tr("Keep it up!", "Semangat streamnya!"), Some(tr("$5.00", "Rp20.000")), MsgKind::Chat(Kind::Paid, Role::Normal)),
         ];
         for (a, t, amt, k) in samples {
             self.msgs.push_back(Msg {
@@ -387,7 +408,7 @@ impl App {
         if let Some(w) = self.cfg.highlight_words().first() {
             self.msgs.push_back(Msg {
                 author: "Dewi".into(),
-                text: format!("Halo {w}, salam dari Bandung!"),
+                text: if i18n::is_id() { format!("Halo {w}, salam dari Bandung!") } else { format!("Hello {w}, greetings from Bandung!") },
                 amount: None,
                 kind: MsgKind::Chat(Kind::Text, Role::Normal),
                 t: now,
@@ -481,7 +502,7 @@ impl App {
         ui.painter().text(
             bar_rect.left_center() + vec2(10.0, 0.0),
             Align2::LEFT_CENTER,
-            "MODE EDIT  -  seret bagian ini untuk memindah",
+            tr("EDIT MODE  -  drag here to move", "MODE EDIT  -  seret bagian ini untuk memindah"),
             FontId::proportional(14.0),
             Color32::WHITE,
         );
@@ -492,69 +513,109 @@ impl App {
         let (mut connect, mut sample, mut done, mut quit) = (false, false, false, false);
         let mut clear = false;
         let mut apply_hk = false;
+        let mut lang_changed = false;
         Frame::none().inner_margin(Margin::symmetric(10.0, 6.0)).show(ui, |ui| {
-            ui.label("Channel YouTube (@nama) atau link live:");
+            ui.label(tr("YouTube channel (@name) or live link:", "Channel YouTube (@nama) atau link live:"));
             ui.add(
                 egui::TextEdit::singleline(&mut self.input_buf)
-                    .hint_text("@namachannel")
+                    .hint_text(tr("@channelname", "@namachannel"))
                     .desired_width(f32::INFINITY),
             );
             ui.horizontal_wrapped(|ui| {
-                connect = ui.button("Hubungkan").clicked();
-                sample = ui.button("Contoh pesan").clicked();
-                clear = ui.button("Bersihkan").clicked();
-                done = ui.button("Selesai").clicked();
-                quit = ui.button("Keluar").clicked();
+                connect = ui.button(tr("Connect", "Hubungkan")).clicked();
+                sample = ui.button(tr("Sample messages", "Contoh pesan")).clicked();
+                clear = ui.button(tr("Clear", "Bersihkan")).clicked();
+                done = ui.button(tr("Done", "Selesai")).clicked();
+                quit = ui.button(tr("Quit", "Keluar")).clicked();
             });
-            ui.add(egui::Slider::new(&mut self.cfg.font_size, 12.0..=36.0).text("Ukuran huruf"));
+            ui.add(egui::Slider::new(&mut self.cfg.font_size, 12.0..=36.0).text(tr("Font size", "Ukuran huruf")));
+            let never = tr("Never", "Tidak pernah");
             ui.add(
                 egui::Slider::new(&mut self.cfg.fade_secs, 0.0..=120.0)
-                    .text("Pesan hilang setelah (detik)")
-                    .custom_formatter(|v, _| if v <= 0.0 { "Tidak pernah".into() } else { format!("{v:.0}") }),
+                    .text(tr("Hide messages after (seconds)", "Pesan hilang setelah (detik)"))
+                    .custom_formatter(move |v, _| if v <= 0.0 { never.into() } else { format!("{v:.0}") }),
             );
-            ui.add(egui::Slider::new(&mut self.cfg.max_msgs, 1..=30).text("Jumlah pesan maksimal"));
+            ui.add(egui::Slider::new(&mut self.cfg.max_msgs, 1..=30).text(tr("Max messages", "Jumlah pesan maksimal")));
             if self.cfg.fade_secs <= 0.0 {
-                ui.small("Pesan tidak hilang sendiri. Pesan lama baru terhapus jika melebihi jumlah maksimal.");
+                ui.small(tr(
+                    "Messages never fade. Old ones are removed only when the max is exceeded.",
+                    "Pesan tidak hilang sendiri. Pesan lama baru terhapus jika melebihi jumlah maksimal.",
+                ));
             }
             ui.horizontal_wrapped(|ui| {
-                ui.label("Sorot kata:");
+                ui.label(tr("Highlight words:", "Sorot kata:"));
                 ui.add(
                     egui::TextEdit::singleline(&mut self.cfg.highlight)
-                        .hint_text("nama, panggilan (pisah koma)")
+                        .hint_text(tr("name, nickname (comma-separated)", "nama, panggilan (pisah koma)"))
                         .desired_width(180.0),
                 )
-                .on_hover_text("Pesan yang berisi kata ini diberi latar ungu.\n@channel yang diisi di atas otomatis ikut disorot.");
+                .on_hover_text(tr(
+                    "Messages containing these words get a purple background.\nThe @channel entered above is highlighted automatically.",
+                    "Pesan yang berisi kata ini diberi latar ungu.\n@channel yang diisi di atas otomatis ikut disorot.",
+                ));
             });
-            ui.add(egui::Slider::new(&mut self.cfg.bg_opacity, 0.0..=1.0).text("Gelap latar"));
-            ui.checkbox(&mut self.cfg.hide_from_capture, "Sembunyikan dari Display Capture OBS")
-                .on_hover_text("Tidak perlu jika OBS memakai Game Capture.\nHindari untuk game dengan anti-cheat ketat.");
+            ui.add(egui::Slider::new(&mut self.cfg.bg_opacity, 0.0..=1.0).text(tr("Background darkness", "Gelap latar")));
+            ui.checkbox(&mut self.cfg.hide_from_capture, tr("Hide from OBS Display Capture", "Sembunyikan dari Display Capture OBS"))
+                .on_hover_text(tr(
+                    "Not needed if OBS uses Game Capture.\nAvoid with games that use strict anti-cheat.",
+                    "Tidak perlu jika OBS memakai Game Capture.\nHindari untuk game dengan anti-cheat ketat.",
+                ));
             ui.horizontal_wrapped(|ui| {
-                ui.label("Hotkey tampil/sembunyi:");
+                ui.label(tr("Show/hide hotkey:", "Hotkey tampil/sembunyi:"));
                 ui.add(egui::TextEdit::singleline(&mut self.cfg.hotkey_toggle).desired_width(110.0));
             });
             ui.horizontal_wrapped(|ui| {
-                ui.label("Hotkey mode edit:");
+                ui.label(tr("Edit mode hotkey:", "Hotkey mode edit:"));
                 ui.add(egui::TextEdit::singleline(&mut self.cfg.hotkey_edit).desired_width(110.0));
                 apply_hk = ui
-                    .button("Terapkan")
-                    .on_hover_text("Contoh: Ctrl+Alt+C, Alt+Shift+Z, Ctrl+Shift+F9")
+                    .button(tr("Apply", "Terapkan"))
+                    .on_hover_text(tr("Examples: Ctrl+Alt+C, Alt+Shift+Z, Ctrl+Shift+F9", "Contoh: Ctrl+Alt+C, Alt+Shift+Z, Ctrl+Shift+F9"))
                     .clicked();
             });
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Language / Bahasa:");
+                let current = i18n::LANGS.iter().find(|l| l.0 == self.cfg.language).map_or("English", |l| l.1);
+                egui::ComboBox::from_id_salt("language").selected_text(current).show_ui(ui, |ui| {
+                    for (code, name) in i18n::LANGS {
+                        if ui.selectable_label(self.cfg.language == code, name).clicked() && self.cfg.language != code {
+                            self.cfg.language = code.into();
+                            lang_changed = true;
+                        }
+                    }
+                });
+            });
+            let ver = env!("CARGO_PKG_VERSION");
             if packaged::is_packaged() {
-                ui.small(format!("Versi {} (Microsoft Store, update otomatis)", env!("CARGO_PKG_VERSION")));
+                ui.small(format!("v{ver} ({})", tr("Microsoft Store, updates automatically", "Microsoft Store, update otomatis")));
             } else {
                 ui.horizontal_wrapped(|ui| {
-                    ui.checkbox(&mut self.cfg.check_updates, "Cek versi baru saat dibuka")
-                        .on_hover_text("Mengecek GitHub Releases sekali setiap aplikasi dibuka.");
-                    ui.small(format!("v{}", env!("CARGO_PKG_VERSION")));
+                    ui.checkbox(&mut self.cfg.check_updates, tr("Check for updates on startup", "Cek versi baru saat dibuka"))
+                        .on_hover_text(tr(
+                            "Checks GitHub Releases once each time the app starts.",
+                            "Mengecek GitHub Releases sekali setiap aplikasi dibuka.",
+                        ));
+                    ui.small(format!("v{ver}"));
                 });
                 if let Some(v) = self.new_version() {
-                    ui.hyperlink_to(format!("Versi baru {v} tersedia - klik untuk mengunduh"), update::RELEASES_URL);
+                    ui.hyperlink_to(
+                        format!("{} {v} - {}", tr("New version", "Versi baru"), tr("click to download", "klik untuk mengunduh")),
+                        update::RELEASES_URL,
+                    );
                 }
             }
             ui.small(format!("Status: {}", self.status));
-            ui.small("Semua menu juga ada di ikon system tray (pojok kanan bawah).");
+            ui.small(tr(
+                "All menus are also in the system tray icon (bottom right).",
+                "Semua menu juga ada di ikon system tray (pojok kanan bawah).",
+            ));
         });
+        if lang_changed {
+            i18n::set(&self.cfg.language);
+            if let Some(t) = &self.tray {
+                t.set_texts();
+            }
+            self.cfg.save();
+        }
         if apply_hk {
             self.register_hotkeys();
         }
@@ -629,16 +690,16 @@ impl eframe::App for App {
         }
         while let Ok(ev) = MenuEvent::receiver().try_recv() {
             let Some(t) = &self.tray else { continue };
-            if ev.id == t.toggle {
+            if ev.id == *t.toggle.id() {
                 if self.edit {
                     self.set_edit(ctx, false);
                 }
                 self.hidden = !self.hidden;
-            } else if ev.id == t.edit {
+            } else if ev.id == *t.edit.id() {
                 self.set_edit(ctx, true);
-            } else if ev.id == t.clear {
+            } else if ev.id == *t.clear.id() {
                 self.msgs.clear();
-            } else if ev.id == t.quit {
+            } else if ev.id == *t.quit.id() {
                 self.save_window(ctx);
                 ctx.send_viewport_cmd(ViewportCommand::Close);
             }

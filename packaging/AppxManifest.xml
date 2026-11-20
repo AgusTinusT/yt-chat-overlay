@@ -16,7 +16,7 @@
     <DisplayName>{{DISPLAY_NAME}}</DisplayName>
     <PublisherDisplayName>{{PUBLISHER_DISPLAY_NAME}}</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
-    <Description>Overlay live chat YouTube yang ringan dan transparan, tampil di atas game.</Description>
+    <Description>Lightweight, transparent YouTube live chat overlay that stays on top of your game.</Description>
   </Properties>
 
   <Dependencies>
@@ -24,15 +24,15 @@
   </Dependencies>
 
   <Resources>
-    <Resource Language="id-ID" />
     <Resource Language="en-US" />
+    <Resource Language="id-ID" />
   </Resources>
 
   <Applications>
     <Application Id="YTChatOverlay" Executable="YT-Chat-Overlay.exe" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
         DisplayName="{{DISPLAY_NAME}}"
-        Description="Overlay live chat YouTube di atas game"
+        Description="YouTube live chat overlay for games"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png">

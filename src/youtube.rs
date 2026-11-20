@@ -1,5 +1,6 @@
 //! Membaca live chat YouTube tanpa API key (cara yang sama dipakai popout chat di browser).
 
+use crate::i18n::{self, tr};
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
@@ -104,7 +105,7 @@ impl Worker {
 
     fn run(&mut self, input: &str) {
         let Some(target) = parse_input(input) else {
-            self.status("Input tidak dikenali. Isi @namachannel atau link live YouTube.");
+            self.status(tr("Unrecognized input. Enter a @channel or a YouTube live link.", "Input tidak dikenali. Isi @namachannel atau link live YouTube."));
             return;
         };
         let agent = ureq::AgentBuilder::new()
@@ -127,7 +128,7 @@ impl Worker {
             Target::Channel(url) => find_live(agent, url)?,
         };
         let mut chat = open_chat(agent, &vid)?;
-        self.status("Terhubung ke live chat");
+        self.status(tr("Connected to live chat", "Terhubung ke live chat"));
         let initial = std::mem::take(&mut chat.initial);
         let skip = initial.len().saturating_sub(5);
         self.items(initial.into_iter().skip(skip).collect());
@@ -143,12 +144,12 @@ impl Worker {
                     self.items(items);
                 }
                 Ok(None) => {
-                    return Err("Live chat sudah berakhir. Menunggu live berikutnya...".into())
+                    return Err(tr("Live chat has ended. Waiting for the next stream...", "Live chat sudah berakhir. Menunggu live berikutnya...").into())
                 }
                 Err(e) => {
                     fails += 1;
                     if fails >= 5 {
-                        return Err(format!("Koneksi terputus ({e}). Mencoba lagi..."));
+                        return Err(format!("{} ({e}). {}", tr("Connection lost", "Koneksi terputus"), tr("Retrying...", "Mencoba lagi...")));
                     }
                 }
             }
@@ -174,7 +175,7 @@ impl Chat {
             None => "https://www.youtube.com/youtubei/v1/live_chat/get_live_chat?prettyPrint=false".into(),
         };
         let body = json!({
-            "context": { "client": { "clientName": "WEB", "clientVersion": self.version, "hl": "id" } },
+            "context": { "client": { "clientName": "WEB", "clientVersion": self.version, "hl": i18n::youtube_hl() } },
             "continuation": self.cont,
         });
         let text = agent
@@ -204,10 +205,10 @@ impl Chat {
 fn get(agent: &ureq::Agent, url: &str) -> Result<String, String> {
     agent
         .get(url)
-        .set("Accept-Language", "id,en;q=0.8")
+        .set("Accept-Language", tr("en,id;q=0.8", "id,en;q=0.8"))
         .set("Cookie", COOKIE)
         .call()
-        .map_err(|e| format!("Gagal menghubungi YouTube: {e}"))?
+        .map_err(|e| format!("{}: {e}", tr("Could not reach YouTube", "Gagal menghubungi YouTube")))?
         .into_string()
         .map_err(|e| e.to_string())
 }
@@ -219,15 +220,15 @@ fn find_live(agent: &ureq::Agent, channel_url: &str) -> Result<String, String> {
             return Ok(id);
         }
     }
-    Err("Channel belum live. Mengecek lagi tiap 15 detik...".into())
+    Err(tr("Channel is not live yet. Checking again every 15 seconds...", "Channel belum live. Mengecek lagi tiap 15 detik...").into())
 }
 
 fn open_chat(agent: &ureq::Agent, vid: &str) -> Result<Chat, String> {
     let html = get(agent, &format!("https://www.youtube.com/live_chat?is_popout=1&v={vid}"))?;
-    let data = extract_initial_data(&html).ok_or("Gagal membaca halaman chat YouTube")?;
+    let data = extract_initial_data(&html).ok_or(tr("Could not read the YouTube chat page", "Gagal membaca halaman chat YouTube"))?;
     let lcr = &data["contents"]["liveChatRenderer"];
     if lcr.is_null() {
-        return Err("Live chat belum tersedia (belum live / chat dimatikan). Mencoba lagi...".into());
+        return Err(tr("Live chat not available yet (not live, or chat is off). Retrying...", "Live chat belum tersedia (belum live / chat dimatikan). Mencoba lagi...").into());
     }
     // subMenuItems[1] = "Live chat" (semua pesan), bukan "Top chat" yang disaring.
     let all_chat = lcr["header"]["liveChatHeaderRenderer"]["viewSelector"]["sortFilterSubMenuRenderer"]
@@ -236,7 +237,7 @@ fn open_chat(agent: &ureq::Agent, vid: &str) -> Result<Chat, String> {
         .map(String::from);
     let cont = all_chat
         .or_else(|| first_continuation(&lcr["continuations"]).map(|(c, _)| c))
-        .ok_or("Data continuation chat tidak ditemukan")?;
+        .ok_or(tr("Chat continuation data not found", "Data continuation chat tidak ditemukan"))?;
     Ok(Chat {
         cont,
         version: between(&html, "\"INNERTUBE_CLIENT_VERSION\":\"", "\"")
@@ -279,7 +280,7 @@ fn parse_actions(v: &Value) -> Vec<ChatItem> {
             let (kind, text) = match name.as_str() {
                 "liveChatTextMessageRenderer" => (Kind::Text, runs(&r["message"])),
                 "liveChatPaidMessageRenderer" => (Kind::Paid, runs(&r["message"])),
-                "liveChatPaidStickerRenderer" => (Kind::Paid, "mengirim Super Sticker".to_string()),
+                "liveChatPaidStickerRenderer" => (Kind::Paid, tr("sent a Super Sticker", "mengirim Super Sticker").to_string()),
                 "liveChatMembershipItemRenderer" => {
                     let mut t = runs(&r["headerSubtext"]);
                     let m = runs(&r["message"]);

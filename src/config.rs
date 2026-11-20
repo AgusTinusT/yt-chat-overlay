@@ -24,6 +24,8 @@ pub struct Config {
     pub check_updates: bool,
     /// Kata yang disorot, dipisah koma (mis. "agus, bang tinus")
     pub highlight: String,
+    /// Bahasa tampilan: "en" (bawaan) atau "id"
+    pub language: String,
 }
 
 impl Default for Config {
@@ -44,6 +46,7 @@ impl Default for Config {
             hotkey_edit: "Ctrl+Alt+E".into(),
             check_updates: true,
             highlight: String::new(),
+            language: "en".into(),
         }
     }
 }

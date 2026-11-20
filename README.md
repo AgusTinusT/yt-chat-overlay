@@ -48,6 +48,7 @@ Format hotkey: `Ctrl+Alt+C`, `Alt+Shift+Z`, `Ctrl+Shift+F9`, dan sejenisnya.
 Aplikasi hanya bisa berjalan satu kali. Kalau dibuka lagi, jendela yang sudah berjalan langsung masuk mode edit.
 
 ## Catatan
+- Bahasa bawaan aplikasi adalah **English**. Untuk mengubahnya ke Bahasa Indonesia, buka mode edit lalu pilih **Language / Bahasa**.
 - Set game ke **Borderless / Windowed Fullscreen**. Di mode *Exclusive Fullscreen*, tidak ada jendela yang bisa tampil di atas game.
 - Pengaturan disimpan di `yt-chat-overlay.json`. Versi portable menyimpannya di folder yang sama dengan `.exe`. Versi Store menyimpannya di `%APPDATA%\YTChatOverlay`.
 - Warna: nama kuning = pemilik channel, biru = moderator, hijau = member. Latar biru = pertanyaan, latar oranye = Super Chat, latar ungu = pesan yang menyebut kata dari **Sorot kata** atau @channel Anda.
