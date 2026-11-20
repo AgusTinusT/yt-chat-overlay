@@ -90,15 +90,17 @@ struct Tray {
     _icon: TrayIcon,
     toggle: MenuId,
     edit: MenuId,
+    clear: MenuId,
     quit: MenuId,
 }
 
 fn build_tray() -> Option<Tray> {
     let toggle = MenuItem::new("Tampilkan / sembunyikan chat", true, None);
     let edit = MenuItem::new("Mode edit (posisi && pengaturan)", true, None);
+    let clear = MenuItem::new("Bersihkan chat", true, None);
     let quit = MenuItem::new("Keluar", true, None);
     let menu = Menu::new();
-    menu.append_items(&[&edit, &toggle, &PredefinedMenuItem::separator(), &quit]).ok()?;
+    menu.append_items(&[&edit, &toggle, &clear, &PredefinedMenuItem::separator(), &quit]).ok()?;
     let data = eframe::icon_data::from_png_bytes(ICON_PNG).ok()?;
     let icon = tray_icon::Icon::from_rgba(data.rgba, data.width, data.height).ok()?;
     let tray = TrayIconBuilder::new()
@@ -108,7 +110,13 @@ fn build_tray() -> Option<Tray> {
         .with_icon(icon)
         .build()
         .ok()?;
-    Some(Tray { _icon: tray, toggle: toggle.id().clone(), edit: edit.id().clone(), quit: quit.id().clone() })
+    Some(Tray {
+        _icon: tray,
+        toggle: toggle.id().clone(),
+        edit: edit.id().clone(),
+        clear: clear.id().clone(),
+        quit: quit.id().clone(),
+    })
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -364,8 +372,7 @@ impl App {
         let samples = [
             ("Budi", "Halo bang, mainnya keren!", None, MsgKind::Chat(Kind::Text, Role::Normal)),
             ("Sari", "Ini game apa ya namanya?", None, MsgKind::Chat(Kind::Text, Role::Member)),
-            ("ModRian", "Jangan spam ya teman-teman", None, MsgKind::Chat(Kind::Text, Role::Moderator)),
-            ("Andi", "Semangat streamnya!", Some("Rp20.000"), MsgKind::Chat(Kind::Paid, Role::Normal)),
+            ("ModRian", "Jangan spam ya teman-teman", None, MsgKind::Chat(Kind::Text, Role::Moderator)),            ("Andi", "Semangat streamnya!", Some("Rp20.000"), MsgKind::Chat(Kind::Paid, Role::Normal)),
         ];
         for (a, t, amt, k) in samples {
             self.msgs.push_back(Msg {
@@ -373,6 +380,16 @@ impl App {
                 text: t.into(),
                 amount: amt.map(String::from),
                 kind: k,
+                t: now,
+            });
+        }
+        // Contoh pesan yang disorot (kalau ada kata sorot)
+        if let Some(w) = self.cfg.highlight_words().first() {
+            self.msgs.push_back(Msg {
+                author: "Dewi".into(),
+                text: format!("Halo {w}, salam dari Bandung!"),
+                amount: None,
+                kind: MsgKind::Chat(Kind::Text, Role::Normal),
                 t: now,
             });
         }
@@ -388,6 +405,7 @@ impl App {
         let regular = FontId::proportional(size);
         let white = Color32::from_rgb(242, 242, 242);
         let gold = Color32::from_rgb(255, 214, 0);
+        let words = self.cfg.highlight_words();
 
         ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
             ui.spacing_mut().item_spacing.y = 4.0;
@@ -397,8 +415,15 @@ impl App {
                 if a <= 0.0 {
                     continue;
                 }
-                let question = matches!(m.kind, MsgKind::Chat(Kind::Text, _)) && m.text.contains('?');
-                let normal_bg = if question {
+                let is_text = matches!(m.kind, MsgKind::Chat(Kind::Text, _));
+                let mentioned = is_text && !words.is_empty() && {
+                    let lower = m.text.to_lowercase();
+                    words.iter().any(|w| lower.contains(w.as_str()))
+                };
+                let question = is_text && m.text.contains('?');
+                let normal_bg = if mentioned {
+                    Color32::from_rgba_unmultiplied(95, 35, 125, bga.max(170))
+                } else if question {
                     Color32::from_rgba_unmultiplied(20, 45, 110, bga.max(150))
                 } else {
                     Color32::from_rgba_unmultiplied(0, 0, 0, bga)
@@ -465,6 +490,7 @@ impl App {
         }
 
         let (mut connect, mut sample, mut done, mut quit) = (false, false, false, false);
+        let mut clear = false;
         let mut apply_hk = false;
         Frame::none().inner_margin(Margin::symmetric(10.0, 6.0)).show(ui, |ui| {
             ui.label("Channel YouTube (@nama) atau link live:");
@@ -476,12 +502,29 @@ impl App {
             ui.horizontal_wrapped(|ui| {
                 connect = ui.button("Hubungkan").clicked();
                 sample = ui.button("Contoh pesan").clicked();
+                clear = ui.button("Bersihkan").clicked();
                 done = ui.button("Selesai").clicked();
                 quit = ui.button("Keluar").clicked();
             });
             ui.add(egui::Slider::new(&mut self.cfg.font_size, 12.0..=36.0).text("Ukuran huruf"));
-            ui.add(egui::Slider::new(&mut self.cfg.fade_secs, 0.0..=120.0).text("Hilang (detik, 0=tidak)"));
-            ui.add(egui::Slider::new(&mut self.cfg.max_msgs, 1..=30).text("Jumlah pesan"));
+            ui.add(
+                egui::Slider::new(&mut self.cfg.fade_secs, 0.0..=120.0)
+                    .text("Pesan hilang setelah (detik)")
+                    .custom_formatter(|v, _| if v <= 0.0 { "Tidak pernah".into() } else { format!("{v:.0}") }),
+            );
+            ui.add(egui::Slider::new(&mut self.cfg.max_msgs, 1..=30).text("Jumlah pesan maksimal"));
+            if self.cfg.fade_secs <= 0.0 {
+                ui.small("Pesan tidak hilang sendiri. Pesan lama baru terhapus jika melebihi jumlah maksimal.");
+            }
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Sorot kata:");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.cfg.highlight)
+                        .hint_text("nama, panggilan (pisah koma)")
+                        .desired_width(180.0),
+                )
+                .on_hover_text("Pesan yang berisi kata ini diberi latar ungu.\n@channel yang diisi di atas otomatis ikut disorot.");
+            });
             ui.add(egui::Slider::new(&mut self.cfg.bg_opacity, 0.0..=1.0).text("Gelap latar"));
             ui.checkbox(&mut self.cfg.hide_from_capture, "Sembunyikan dari Display Capture OBS")
                 .on_hover_text("Tidak perlu jika OBS memakai Game Capture.\nHindari untuk game dengan anti-cheat ketat.");
@@ -540,6 +583,9 @@ impl App {
         if sample {
             self.add_samples();
         }
+        if clear {
+            self.msgs.clear();
+        }
         if done {
             self.set_edit(ctx, false);
         }
@@ -590,6 +636,8 @@ impl eframe::App for App {
                 self.hidden = !self.hidden;
             } else if ev.id == t.edit {
                 self.set_edit(ctx, true);
+            } else if ev.id == t.clear {
+                self.msgs.clear();
             } else if ev.id == t.quit {
                 self.save_window(ctx);
                 ctx.send_viewport_cmd(ViewportCommand::Close);

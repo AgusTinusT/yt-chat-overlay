@@ -35,7 +35,7 @@ Kolom *Hash* harus sama persis dengan angka di halaman Release. Kalau berbeda, j
 ## Kontrol
 **Ikon di system tray** (pojok kanan bawah taskbar). Tidak perlu keyboard:
 - Klik kiri: buka / tutup mode edit
-- Klik kanan: menu (tampilkan/sembunyikan chat, mode edit, keluar)
+- Klik kanan: menu (tampilkan/sembunyikan chat, mode edit, bersihkan chat, keluar)
 
 **Hotkey** (bisa diubah di mode edit, lalu klik **Terapkan**):
 | Tombol bawaan | Fungsi |
@@ -50,7 +50,8 @@ Aplikasi hanya bisa berjalan satu kali. Kalau dibuka lagi, jendela yang sudah be
 ## Catatan
 - Set game ke **Borderless / Windowed Fullscreen**. Di mode *Exclusive Fullscreen*, tidak ada jendela yang bisa tampil di atas game.
 - Pengaturan disimpan di `yt-chat-overlay.json`. Versi portable menyimpannya di folder yang sama dengan `.exe`. Versi Store menyimpannya di `%APPDATA%\YTChatOverlay`.
-- Warna: nama kuning = pemilik channel, biru = moderator, hijau = member. Latar biru = pertanyaan, latar oranye = Super Chat.
+- Warna: nama kuning = pemilik channel, biru = moderator, hijau = member. Latar biru = pertanyaan, latar oranye = Super Chat, latar ungu = pesan yang menyebut kata dari **Sorot kata** atau @channel Anda.
+- Supaya pesan tidak pernah hilang, geser slider **Pesan hilang setelah** ke kiri sampai muncul *Tidak pernah*. Pesan lama tetap dihapus kalau jumlahnya melebihi **Jumlah pesan maksimal**.
 
 ## Supaya overlay tidak ikut terekam OBS
 Pakai source **Game Capture** di OBS, bukan Display Capture. Game Capture hanya merekam jendela game, jadi overlay hanya terlihat oleh Anda dan penonton tidak melihat chat dobel.

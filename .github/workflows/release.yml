@@ -12,7 +12,7 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
@@ -64,16 +64,17 @@ jobs:
         shell: pwsh
         run: ./packaging/build-msix.ps1 -Exe target/release/yt-chat-overlay.exe -OutDir msix
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: msix-store-${{ github.ref_name }}
           path: msix/*.msix
           retention-days: 90
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           body_path: RELEASE_NOTES.md
           generate_release_notes: true
+          fail_on_unmatched_files: true
           files: |
             dist/YT-Chat-Overlay.exe
             YT-Chat-Overlay-${{ github.ref_name }}-windows-x64.zip

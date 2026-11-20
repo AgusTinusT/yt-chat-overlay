@@ -22,6 +22,8 @@ pub struct Config {
     /// Versi portable: cek versi baru di GitHub saat aplikasi dibuka.
     /// Versi Microsoft Store tidak memakai ini (update lewat Store).
     pub check_updates: bool,
+    /// Kata yang disorot, dipisah koma (mis. "agus, bang tinus")
+    pub highlight: String,
 }
 
 impl Default for Config {
@@ -41,6 +43,7 @@ impl Default for Config {
             hotkey_toggle: "Ctrl+Alt+C".into(),
             hotkey_edit: "Ctrl+Alt+E".into(),
             check_updates: true,
+            highlight: String::new(),
         }
     }
 }
@@ -63,6 +66,24 @@ fn path() -> PathBuf {
 }
 
 impl Config {
+    /// Kata sorot (huruf kecil): isi `highlight` + @handle dari `input` jika ada.
+    pub fn highlight_words(&self) -> Vec<String> {
+        let mut words: Vec<String> = self
+            .highlight
+            .split(',')
+            .map(|w| w.trim().to_lowercase())
+            .filter(|w| w.chars().count() >= 2)
+            .collect();
+        let input = self.input.trim();
+        let handle = input.strip_prefix('@').map(str::to_string).or_else(|| {
+            input.split("/@").nth(1).map(|s| s.split(['/', '?']).next().unwrap_or("").to_string())
+        });
+        if let Some(h) = handle.filter(|h| !h.is_empty()) {
+            words.push(format!("@{}", h.to_lowercase()));
+        }
+        words
+    }
+
     pub fn load() -> Self {
         std::fs::read_to_string(path())
             .ok()
@@ -74,5 +95,21 @@ impl Config {
         if let Ok(s) = serde_json::to_string_pretty(self) {
             let _ = std::fs::write(path(), s);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Config;
+
+    #[test]
+    fn highlight_words() {
+        let mut c = Config { highlight: " Agus , bang tinus,,x".into(), input: "@AgusTinusT".into(), ..Default::default() };
+        assert_eq!(c.highlight_words(), ["agus", "bang tinus", "@agustinust"]);
+        c.input = "https://www.youtube.com/@AgusTinusT/live".into();
+        assert_eq!(c.highlight_words().last().unwrap(), "@agustinust");
+        c.input = "https://youtu.be/abc".into();
+        c.highlight.clear();
+        assert!(c.highlight_words().is_empty());
     }
 }
