@@ -1,7 +1,7 @@
 {
-  "_catatan": "Setelah nama aplikasi direservasi di Partner Center, salin nilai dari Product management > Product identity ke sini (Package/Identity/Name, Package/Identity/Publisher, Package/Properties/PublisherDisplayName). Nilai di bawah hanya untuk tes lokal.",
-  "IdentityName": "AgusTinusT.YTChatOverlay",
-  "Publisher": "CN=AgusTinusT",
-  "PublisherDisplayName": "AgusTinusT",
+  "_catatan": "Nilai dari Partner Center > Product management > Product identity. Jangan diubah kecuali aplikasinya dipindah ke akun lain.",
+  "IdentityName": "AgusTinusTurnip.YTChatOverlay",
+  "Publisher": "CN=C1FEFD9D-12A9-439B-9088-F8E408F8BBCB",
+  "PublisherDisplayName": "Agus Tinus Turnip",
   "DisplayName": "YT Chat Overlay"
 }
