@@ -48,6 +48,8 @@ jobs:
             ""
             "Source code-nya terbuka, dan file ini dibuild otomatis oleh GitHub Actions dari kode di repo ini."
             ""
+            "Code signing: proyek ini sedang mendaftar ke SignPath Foundation untuk tanda tangan digital gratis. Lihat [Code signing policy](https://github.com/AgusTinusT/yt-chat-overlay#code-signing-policy) dan [Privacy](https://github.com/AgusTinusT/yt-chat-overlay#privacy)."
+            ""
             "## Cek keaslian file (SHA-256)"
             '```'
             $sums

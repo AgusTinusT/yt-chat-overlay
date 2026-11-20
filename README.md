@@ -65,6 +65,24 @@ Meski begitu, perlu diketahui:
 
 Untuk game kompetitif dengan anti-cheat kernel, sebaiknya tutup overlay saat bermain. Gunakan dengan risiko sendiri.
 
+## Code signing policy
+Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
+
+> Status: pendaftaran ke SignPath Foundation sedang diajukan. Sampai disetujui, file `.exe` di Releases belum ditandatangani.
+
+- **Committers dan reviewers:** [AgusTinusT](https://github.com/AgusTinusT)
+- **Approvers:** [AgusTinusT](https://github.com/AgusTinusT)
+- Setiap file yang ditandatangani dibuild otomatis oleh GitHub Actions dari source code di repo ini. Setiap rilis disetujui secara manual oleh approver.
+- Hanya file yang dibuild dari repo ini yang ditandatangani. Tidak ada file pihak ketiga yang ikut ditandatangani.
+
+## Privacy
+This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
+
+Dalam bahasa Indonesia:
+- Aplikasi hanya terhubung ke **youtube.com** untuk membaca live chat publik dari channel atau link yang Anda isi sendiri.
+- Tidak ada login, tidak ada akun, tidak ada telemetri atau analitik, dan tidak ada data yang dikirim ke server lain.
+- Pengaturan hanya disimpan di komputer Anda, di file `yt-chat-overlay.json` di samping `.exe`.
+
 ## Build ulang
 ```powershell
 $env:CARGO_TARGET_DIR = "$env:LOCALAPPDATA\ytovl"; cargo build --release
