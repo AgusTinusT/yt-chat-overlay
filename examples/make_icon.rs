@@ -59,5 +59,18 @@ fn main() {
     wide.draw_pixmap(95, 15, logo.as_ref(), &tiny_skia::PixmapPaint::default(), tiny_skia::Transform::identity(), None);
     std::fs::write(dir.join("Wide310x150Logo.png"), wide.encode_png().unwrap()).unwrap();
 
-    println!("Selesai: assets/logo.png, assets/icon-256.png, assets/icon.ico, packaging/Assets/*.png");
+    // Gambar untuk halaman Store (Partner Center > Store listing > Store logos)
+    let art = std::path::Path::new("packaging/StoreArt");
+    std::fs::create_dir_all(art).unwrap();
+    let bg = tiny_skia::Color::from_rgba8(0x1B, 0x1B, 0x22, 0xFF);
+    for (name, w, h, logo_size) in [("BoxArt-2160x2160.png", 2160, 2160, 1500), ("PosterArt-1440x2160.png", 1440, 2160, 1100)] {
+        let mut canvas = tiny_skia::Pixmap::new(w, h).unwrap();
+        canvas.fill(bg);
+        let logo = pixmap(&tree, logo_size);
+        let (x, y) = (((w - logo_size) / 2) as i32, ((h - logo_size) / 2) as i32);
+        canvas.draw_pixmap(x, y, logo.as_ref(), &tiny_skia::PixmapPaint::default(), tiny_skia::Transform::identity(), None);
+        std::fs::write(art.join(name), canvas.encode_png().unwrap()).unwrap();
+    }
+
+    println!("Selesai: assets/*, packaging/Assets/*.png, packaging/StoreArt/*.png");
 }
