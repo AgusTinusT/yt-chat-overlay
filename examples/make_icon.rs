@@ -41,5 +41,23 @@ fn main() {
         .collect();
     let file = std::fs::File::create("assets/icon.ico").unwrap();
     IcoEncoder::new(file).encode_images(&frames).unwrap();
-    println!("Selesai: assets/logo.png, assets/icon-256.png, assets/icon.ico");
+
+    // Logo untuk paket MSIX (Microsoft Store)
+    let dir = std::path::Path::new("packaging/Assets");
+    std::fs::create_dir_all(dir).unwrap();
+    for (name, size) in [
+        ("Square44x44Logo.png", 44),
+        ("Square150x150Logo.png", 150),
+        ("Square310x310Logo.png", 310),
+        ("StoreLogo.png", 50),
+    ] {
+        std::fs::write(dir.join(name), render(&tree, size)).unwrap();
+    }
+    // Wide 310x150: logo 120px di tengah, latar transparan
+    let mut wide = tiny_skia::Pixmap::new(310, 150).unwrap();
+    let logo = pixmap(&tree, 120);
+    wide.draw_pixmap(95, 15, logo.as_ref(), &tiny_skia::PixmapPaint::default(), tiny_skia::Transform::identity(), None);
+    std::fs::write(dir.join("Wide310x150Logo.png"), wide.encode_png().unwrap()).unwrap();
+
+    println!("Selesai: assets/logo.png, assets/icon-256.png, assets/icon.ico, packaging/Assets/*.png");
 }

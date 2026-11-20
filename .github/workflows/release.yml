@@ -58,6 +58,18 @@ jobs:
           )
           $notes | Set-Content -Encoding utf8 RELEASE_NOTES.md
 
+      # Paket untuk Microsoft Store. Bukan untuk diinstall langsung (belum ditandatangani);
+      # unduh dari tab Actions > run ini > Artifacts, lalu upload ke Partner Center.
+      - name: Paket MSIX (Microsoft Store)
+        shell: pwsh
+        run: ./packaging/build-msix.ps1 -Exe target/release/yt-chat-overlay.exe -OutDir msix
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: msix-store-${{ github.ref_name }}
+          path: msix/*.msix
+          retention-days: 90
+
       - uses: softprops/action-gh-release@v2
         with:
           body_path: RELEASE_NOTES.md

@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod config;
+mod packaged;
+mod update;
 mod youtube;
 
 use config::Config;
@@ -143,6 +145,9 @@ struct App {
     hwnd: Option<isize>,
     affinity_applied: Option<bool>,
     passthrough_applied: Option<bool>,
+    /// Hasil cek versi baru (hanya versi portable)
+    latest: Option<update::Latest>,
+    update_notified: bool,
 }
 
 impl App {
@@ -170,7 +175,13 @@ impl App {
             hwnd: None,
             affinity_applied: None,
             passthrough_applied: None,
+            latest: None,
+            update_notified: false,
         };
+        // Versi Store diperbarui oleh Microsoft Store, jadi hanya versi portable yang cek GitHub.
+        if !packaged::is_packaged() && app.cfg.check_updates {
+            app.latest = Some(update::spawn_check(cc.egui_ctx.clone()));
+        }
         if app.tray.is_none() {
             app.system("Ikon system tray gagal dibuat.");
         }
@@ -270,6 +281,20 @@ impl App {
                 }
                 _ => {}
             }
+        }
+    }
+
+    fn new_version(&self) -> Option<String> {
+        self.latest.as_ref().and_then(|l| l.lock().ok().and_then(|v| v.clone()))
+    }
+
+    fn check_update_notice(&mut self) {
+        if self.update_notified {
+            return;
+        }
+        if let Some(v) = self.new_version() {
+            self.update_notified = true;
+            self.system(format!("Versi baru {v} tersedia. Buka mode edit untuk mengunduh."));
         }
     }
 
@@ -472,6 +497,18 @@ impl App {
                     .on_hover_text("Contoh: Ctrl+Alt+C, Alt+Shift+Z, Ctrl+Shift+F9")
                     .clicked();
             });
+            if packaged::is_packaged() {
+                ui.small(format!("Versi {} (Microsoft Store, update otomatis)", env!("CARGO_PKG_VERSION")));
+            } else {
+                ui.horizontal_wrapped(|ui| {
+                    ui.checkbox(&mut self.cfg.check_updates, "Cek versi baru saat dibuka")
+                        .on_hover_text("Mengecek GitHub Releases sekali setiap aplikasi dibuka.");
+                    ui.small(format!("v{}", env!("CARGO_PKG_VERSION")));
+                });
+                if let Some(v) = self.new_version() {
+                    ui.hyperlink_to(format!("Versi baru {v} tersedia - klik untuk mengunduh"), update::RELEASES_URL);
+                }
+            }
             ui.small(format!("Status: {}", self.status));
             ui.small("Semua menu juga ada di ikon system tray (pojok kanan bawah).");
         });
@@ -565,6 +602,7 @@ impl eframe::App for App {
         }
 
         self.pump_events();
+        self.check_update_notice();
         self.prune();
 
         // Mode main: klik mouse tembus ke game. Mode edit: jendela bisa diklik.
