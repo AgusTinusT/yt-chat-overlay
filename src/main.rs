@@ -192,6 +192,8 @@ struct App {
     /// Hasil cek versi baru (hanya versi portable)
     latest: Option<update::Latest>,
     update_notified: bool,
+    /// StartDrag sudah dikirim untuk tekanan mouse yang sedang berlangsung
+    window_drag_sent: bool,
 }
 
 impl App {
@@ -221,6 +223,7 @@ impl App {
             passthrough_applied: None,
             latest: None,
             update_notified: false,
+            window_drag_sent: false,
         };
         // Versi Store diperbarui oleh Microsoft Store, jadi hanya versi portable yang cek GitHub.
         if !packaged::is_packaged() && app.cfg.check_updates {
@@ -382,6 +385,22 @@ impl App {
         self.cfg.save();
     }
 
+    /// Mulai memindah jendela hanya jika tombol kiri ditahan dan mouse sudah bergeser beberapa piksel.
+    fn start_drag_if_moved(&mut self, ctx: &egui::Context, resp: &egui::Response) {
+        if !ctx.input(|i| i.pointer.primary_down()) {
+            self.window_drag_sent = false;
+            return;
+        }
+        if !self.window_drag_sent
+            && resp.dragged_by(egui::PointerButton::Primary)
+            && ctx.input(|i| i.pointer.press_origin().zip(i.pointer.latest_pos()))
+                .is_some_and(|(a, b)| a.distance(b) > 4.0)
+        {
+            self.window_drag_sent = true;
+            ctx.send_viewport_cmd(ViewportCommand::StartDrag);
+        }
+    }
+
     /// Pindahkan overlay ke pojok layar (di luar taskbar). Pojok atas = pesan menempel di atas.
     fn snap_to_corner(&mut self, ctx: &egui::Context, right: bool, bottom: bool) {
         let Some(area) = self.hwnd.and_then(monitor::work_area) else { return };
@@ -393,7 +412,8 @@ impl App {
             )
         });
         let [l, t, r, b] = area.map(|v| v as f32 / ppp);
-        let margin = 12.0;
+        // Tepat menempel di pojok area kerja (tanpa celah)
+        let margin = 0.0;
         let x = if right { r - size.x - margin } else { l + margin };
         let y = if bottom { b - size.y - margin } else { t + margin };
         ctx.send_viewport_cmd(ViewportCommand::OuterPosition(egui::pos2(x, y)));
@@ -548,10 +568,10 @@ impl App {
 
         // Seret dari bagian kosong mana pun di panel (bukan hanya bilah atas).
         // Didaftarkan lebih dulu, jadi tombol/slider di atasnya tetap menang.
+        // Jendela baru dipindah setelah mouse benar-benar bergeser: StartDrag pada klik biasa
+        // dianggap klik di title bar oleh Windows, dan dua klik cepat membuat jendela maximize.
         let bg = ui.interact(full, ui.id().with("panel_drag"), Sense::drag());
-        if bg.drag_started_by(egui::PointerButton::Primary) {
-            ctx.send_viewport_cmd(ViewportCommand::StartDrag);
-        }
+        self.start_drag_if_moved(ctx, &bg);
 
         let (bar_rect, bar) =
             ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::click_and_drag());
@@ -563,9 +583,7 @@ impl App {
             FontId::proportional(14.0),
             Color32::WHITE,
         );
-        if bar.drag_started_by(egui::PointerButton::Primary) {
-            ctx.send_viewport_cmd(ViewportCommand::StartDrag);
-        }
+        self.start_drag_if_moved(ctx, &bar);
 
         let (mut connect, mut sample, mut done, mut quit) = (false, false, false, false);
         let mut clear = false;
