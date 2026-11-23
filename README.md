@@ -29,7 +29,8 @@ Kolom *Hash* harus sama persis dengan angka di halaman Release. Kalau berbeda, j
 1. Jalankan `YT-Chat-Overlay.exe`. Saat pertama kali dibuka, aplikasi langsung masuk **mode edit**.
 2. Isi **@namachannel** Anda (disarankan) atau link live, lalu klik **Hubungkan**.
    - Kalau diisi @channel, aplikasi otomatis mencari live yang sedang berjalan dan mengecek ulang tiap 15 detik. Jadi aplikasi boleh dibuka sebelum mulai live.
-3. Seret bilah merah untuk memindah overlay, dan seret pojok kanan bawah untuk mengubah ukuran.
+3. Klik tombol **Position** (↖ ↗ ↙ ↘) untuk langsung menaruh overlay di pojok layar. Cara lain: seret bagian kosong mana pun di panel untuk memindah, dan seret pojok kanan bawah untuk mengubah ukuran.
+   - Untuk pojok atas, chat otomatis mulai dari atas overlay dan bertambah ke bawah (opsi **Messages from top**).
 4. Klik **Selesai**. Overlay sekarang transparan dan bisa diklik tembus.
 
 ## Kontrol

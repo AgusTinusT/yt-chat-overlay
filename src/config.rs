@@ -26,6 +26,9 @@ pub struct Config {
     pub highlight: String,
     /// Bahasa tampilan: "en" (bawaan) atau "id"
     pub language: String,
+    /// true = pesan menempel di atas jendela dan bertambah ke bawah (cocok untuk pojok atas layar).
+    /// false = menempel di bawah dan bertambah ke atas.
+    pub anchor_top: bool,
 }
 
 impl Default for Config {
@@ -47,6 +50,7 @@ impl Default for Config {
             check_updates: true,
             highlight: String::new(),
             language: "en".into(),
+            anchor_top: false,
         }
     }
 }

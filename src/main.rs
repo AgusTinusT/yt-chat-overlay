@@ -60,6 +60,30 @@ mod single_instance {
     }
 }
 
+/// Area kerja monitor (layar tanpa taskbar), dalam piksel fisik.
+mod monitor {
+    use windows_sys::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
+
+    /// [kiri, atas, kanan, bawah] dari monitor tempat jendela berada.
+    pub fn work_area(hwnd: isize) -> Option<[i32; 4]> {
+        unsafe {
+            let mon = MonitorFromWindow(hwnd as _, MONITOR_DEFAULTTONEAREST);
+            if mon.is_null() {
+                return None;
+            }
+            let mut mi: MONITORINFO = std::mem::zeroed();
+            mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+            if GetMonitorInfoW(mon, &mut mi) == 0 {
+                return None;
+            }
+            let r = mi.rcWork;
+            Some([r.left, r.top, r.right, r.bottom])
+        }
+    }
+}
+
 fn main() -> eframe::Result<()> {
     let Some(show_event) = single_instance::acquire() else {
         return Ok(());
@@ -358,6 +382,26 @@ impl App {
         self.cfg.save();
     }
 
+    /// Pindahkan overlay ke pojok layar (di luar taskbar). Pojok atas = pesan menempel di atas.
+    fn snap_to_corner(&mut self, ctx: &egui::Context, right: bool, bottom: bool) {
+        let Some(area) = self.hwnd.and_then(monitor::work_area) else { return };
+        let (ppp, size) = ctx.input(|i| {
+            let vp = i.viewport();
+            (
+                vp.native_pixels_per_point.unwrap_or(i.pixels_per_point),
+                vp.outer_rect.map(|r| r.size()).unwrap_or(vec2(self.cfg.size[0], self.cfg.size[1])),
+            )
+        });
+        let [l, t, r, b] = area.map(|v| v as f32 / ppp);
+        let margin = 12.0;
+        let x = if right { r - size.x - margin } else { l + margin };
+        let y = if bottom { b - size.y - margin } else { t + margin };
+        ctx.send_viewport_cmd(ViewportCommand::OuterPosition(egui::pos2(x, y)));
+        self.cfg.anchor_top = !bottom;
+        self.cfg.pos = Some([x, y]);
+        self.cfg.save();
+    }
+
     fn ensure_hwnd(&mut self, frame: &eframe::Frame) {
         if self.hwnd.is_some() {
             return;
@@ -428,9 +472,15 @@ impl App {
         let gold = Color32::from_rgb(255, 214, 0);
         let words = self.cfg.highlight_words();
 
-        ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
+        // Menempel di bawah: pesan terbaru paling bawah, daftar tumbuh ke atas.
+        // Menempel di atas: pesan terbaru tetap paling bawah, daftar tumbuh ke bawah dari atas jendela.
+        let top = self.cfg.anchor_top;
+        let layout = if top { Layout::top_down(Align::Min) } else { Layout::bottom_up(Align::Min) };
+        let ordered: Box<dyn Iterator<Item = &Msg>> =
+            if top { Box::new(self.msgs.iter()) } else { Box::new(self.msgs.iter().rev()) };
+        ui.with_layout(layout, |ui| {
             ui.spacing_mut().item_spacing.y = 4.0;
-            for m in self.msgs.iter().rev() {
+            for m in ordered {
                 let age = now.duration_since(m.t).as_secs_f32();
                 let a = if fade > 0.0 { ((fade - age) / 1.5).clamp(0.0, 1.0) } else { 1.0 };
                 if a <= 0.0 {
@@ -496,13 +546,20 @@ impl App {
         ui.painter()
             .rect(full, 8.0, Color32::from_black_alpha(205), Stroke::new(2.0_f32, accent));
 
+        // Seret dari bagian kosong mana pun di panel (bukan hanya bilah atas).
+        // Didaftarkan lebih dulu, jadi tombol/slider di atasnya tetap menang.
+        let bg = ui.interact(full, ui.id().with("panel_drag"), Sense::drag());
+        if bg.drag_started_by(egui::PointerButton::Primary) {
+            ctx.send_viewport_cmd(ViewportCommand::StartDrag);
+        }
+
         let (bar_rect, bar) =
             ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::click_and_drag());
         ui.painter().rect_filled(bar_rect, 8.0, Color32::from_rgba_unmultiplied(255, 90, 90, 60));
         ui.painter().text(
             bar_rect.left_center() + vec2(10.0, 0.0),
             Align2::LEFT_CENTER,
-            tr("EDIT MODE  -  drag here to move", "MODE EDIT  -  seret bagian ini untuk memindah"),
+            tr("EDIT MODE  -  drag to move", "MODE EDIT  -  seret untuk memindah"),
             FontId::proportional(14.0),
             Color32::WHITE,
         );
@@ -514,7 +571,30 @@ impl App {
         let mut clear = false;
         let mut apply_hk = false;
         let mut lang_changed = false;
+        let mut snap: Option<(bool, bool)> = None;
+        // Pengaturan bisa di-scroll, supaya overlay boleh kecil dan pratinjau chat tetap terlihat.
+        let settings_h = (ui.available_height() - 90.0).max(120.0);
+        egui::ScrollArea::vertical().max_height(settings_h).auto_shrink([false, true]).show(ui, |ui| {
         Frame::none().inner_margin(Margin::symmetric(10.0, 6.0)).show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(tr("Position:", "Posisi:"));
+                let corners = [
+                    ("↖", tr("Top left", "Kiri atas"), false, false),
+                    ("↗", tr("Top right", "Kanan atas"), true, false),
+                    ("↙", tr("Bottom left", "Kiri bawah"), false, true),
+                    ("↘", tr("Bottom right", "Kanan bawah"), true, true),
+                ];
+                for (icon, name, right, bottom) in corners {
+                    if ui.button(icon).on_hover_text(name).clicked() {
+                        snap = Some((right, bottom));
+                    }
+                }
+                ui.checkbox(&mut self.cfg.anchor_top, tr("Messages from top", "Pesan dari atas"))
+                    .on_hover_text(tr(
+                        "On: chat starts at the top of the overlay and grows downward (for the top of the screen).\nOff: chat sticks to the bottom and grows upward.",
+                        "Aktif: chat mulai dari atas overlay dan bertambah ke bawah (untuk bagian atas layar).\nMati: chat menempel di bawah dan bertambah ke atas.",
+                    ));
+            });
             ui.label(tr("YouTube channel (@name) or live link:", "Channel YouTube (@nama) atau link live:"));
             ui.add(
                 egui::TextEdit::singleline(&mut self.input_buf)
@@ -609,6 +689,10 @@ impl App {
                 "Semua menu juga ada di ikon system tray (pojok kanan bawah).",
             ));
         });
+        });
+        if let Some((right, bottom)) = snap {
+            self.snap_to_corner(ctx, right, bottom);
+        }
         if lang_changed {
             i18n::set(&self.cfg.language);
             if let Some(t) = &self.tray {
