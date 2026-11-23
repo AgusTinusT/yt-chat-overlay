@@ -167,6 +167,17 @@ struct Msg {
     amount: Option<String>,
     kind: MsgKind,
     t: Instant,
+    /// Contoh pesan untuk pratinjau mode edit; dihapus saat Done
+    sample: bool,
+}
+
+/// Tab di mode edit, diurutkan sesuai langkah pengguna baru.
+#[derive(Clone, Copy, PartialEq)]
+enum EditTab {
+    Channel,
+    Position,
+    Look,
+    Settings,
 }
 
 struct App {
@@ -194,6 +205,16 @@ struct App {
     update_notified: bool,
     /// StartDrag sudah dikirim untuk tekanan mouse yang sedang berlangsung
     window_drag_sent: bool,
+    tab: EditTab,
+}
+
+fn corner_key(right: bool, bottom: bool) -> &'static str {
+    match (right, bottom) {
+        (false, false) => "tl",
+        (true, false) => "tr",
+        (false, true) => "bl",
+        (true, true) => "br",
+    }
 }
 
 impl App {
@@ -224,6 +245,7 @@ impl App {
             latest: None,
             update_notified: false,
             window_drag_sent: false,
+            tab: EditTab::Channel,
         };
         // Versi Store diperbarui oleh Microsoft Store, jadi hanya versi portable yang cek GitHub.
         if !packaged::is_packaged() && app.cfg.check_updates {
@@ -242,7 +264,8 @@ impl App {
         }
 
         if app.cfg.input.trim().is_empty() {
-            app.edit = true;
+            // Pertama kali dibuka: langsung mode edit, mulai dari tab Channel
+            app.set_edit(&cc.egui_ctx, true);
         } else {
             app.connect(&cc.egui_ctx);
         }
@@ -290,6 +313,7 @@ impl App {
             amount: None,
             kind: MsgKind::System,
             t: Instant::now(),
+            sample: false,
         });
     }
 
@@ -327,6 +351,7 @@ impl App {
                             amount: it.amount,
                             kind: MsgKind::Chat(it.kind, it.role),
                             t: Instant::now(),
+                            sample: false,
                         });
                     }
                 }
@@ -357,7 +382,8 @@ impl App {
         let fade = self.cfg.fade_secs;
         if fade > 0.0 {
             let now = Instant::now();
-            self.msgs.retain(|m| now.duration_since(m.t).as_secs_f32() < fade);
+            // Contoh pesan tidak ikut hilang selama mode edit (dihapus saat Done)
+            self.msgs.retain(|m| m.sample || now.duration_since(m.t).as_secs_f32() < fade);
         }
         while self.msgs.len() > self.cfg.max_msgs.max(1) {
             self.msgs.pop_front();
@@ -365,10 +391,19 @@ impl App {
     }
 
     fn set_edit(&mut self, ctx: &egui::Context, on: bool) {
+        if on == self.edit {
+            return;
+        }
         self.edit = on;
         if on {
             self.hidden = false;
+            // Pratinjau langsung terlihat tanpa harus klik "Contoh pesan"
+            if !self.msgs.iter().any(|m| m.sample) {
+                self.add_samples();
+            }
+            self.tab = if self.cfg.input.trim().is_empty() { EditTab::Channel } else { EditTab::Position };
         } else {
+            self.msgs.retain(|m| !m.sample);
             self.save_window(ctx);
         }
     }
@@ -397,6 +432,8 @@ impl App {
                 .is_some_and(|(a, b)| a.distance(b) > 4.0)
         {
             self.window_drag_sent = true;
+            // Posisi bebas: tidak lagi menempel di pojok tertentu
+            self.cfg.corner.clear();
             ctx.send_viewport_cmd(ViewportCommand::StartDrag);
         }
     }
@@ -418,6 +455,7 @@ impl App {
         let y = if bottom { b - size.y - margin } else { t + margin };
         ctx.send_viewport_cmd(ViewportCommand::OuterPosition(egui::pos2(x, y)));
         self.cfg.anchor_top = !bottom;
+        self.cfg.corner = corner_key(right, bottom).into();
         self.cfg.pos = Some([x, y]);
         self.cfg.save();
     }
@@ -466,6 +504,7 @@ impl App {
                 amount: amt.map(String::from),
                 kind: k,
                 t: now,
+                sample: true,
             });
         }
         // Contoh pesan yang disorot (kalau ada kata sorot)
@@ -476,6 +515,7 @@ impl App {
                 amount: None,
                 kind: MsgKind::Chat(Kind::Text, Role::Normal),
                 t: now,
+                sample: true,
             });
         }
     }
@@ -502,7 +542,7 @@ impl App {
             ui.spacing_mut().item_spacing.y = 4.0;
             for m in ordered {
                 let age = now.duration_since(m.t).as_secs_f32();
-                let a = if fade > 0.0 { ((fade - age) / 1.5).clamp(0.0, 1.0) } else { 1.0 };
+                let a = if fade > 0.0 && !m.sample { ((fade - age) / 1.5).clamp(0.0, 1.0) } else { 1.0 };
                 if a <= 0.0 {
                     continue;
                 }
@@ -563,151 +603,198 @@ impl App {
     fn draw_edit(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let full = ui.max_rect();
         let accent = Color32::from_rgb(255, 90, 90);
+        let muted = Color32::from_gray(165);
         ui.painter()
-            .rect(full, 8.0, Color32::from_black_alpha(205), Stroke::new(2.0_f32, accent));
+            .rect(full, 8.0, Color32::from_black_alpha(215), Stroke::new(2.0_f32, accent));
 
-        // Seret dari bagian kosong mana pun di panel (bukan hanya bilah atas).
-        // Didaftarkan lebih dulu, jadi tombol/slider di atasnya tetap menang.
-        // Jendela baru dipindah setelah mouse benar-benar bergeser: StartDrag pada klik biasa
-        // dianggap klik di title bar oleh Windows, dan dua klik cepat membuat jendela maximize.
+        // Seret dari bagian kosong mana pun di panel. Didaftarkan lebih dulu, jadi tombol/slider
+        // di atasnya tetap menang. Jendela baru dipindah setelah mouse benar-benar bergeser:
+        // StartDrag pada klik biasa dianggap klik title bar dan dua klik cepat memicu maximize.
         let bg = ui.interact(full, ui.id().with("panel_drag"), Sense::drag());
         self.start_drag_if_moved(ctx, &bg);
 
-        let (bar_rect, bar) =
-            ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::click_and_drag());
-        ui.painter().rect_filled(bar_rect, 8.0, Color32::from_rgba_unmultiplied(255, 90, 90, 60));
-        ui.painter().text(
-            bar_rect.left_center() + vec2(10.0, 0.0),
-            Align2::LEFT_CENTER,
-            tr("EDIT MODE  -  drag to move", "MODE EDIT  -  seret untuk memindah"),
-            FontId::proportional(14.0),
-            Color32::WHITE,
-        );
-        self.start_drag_if_moved(ctx, &bar);
-
-        let (mut connect, mut sample, mut done, mut quit) = (false, false, false, false);
-        let mut clear = false;
+        let (mut done, mut quit, mut connect, mut clear) = (false, false, false, false);
         let mut apply_hk = false;
         let mut lang_changed = false;
         let mut snap: Option<(bool, bool)> = None;
-        // Pengaturan bisa di-scroll, supaya overlay boleh kecil dan pratinjau chat tetap terlihat.
-        let settings_h = (ui.available_height() - 90.0).max(120.0);
-        egui::ScrollArea::vertical().max_height(settings_h).auto_shrink([false, true]).show(ui, |ui| {
-        Frame::none().inner_margin(Margin::symmetric(10.0, 6.0)).show(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(tr("Position:", "Posisi:"));
-                let corners = [
-                    ("↖", tr("Top left", "Kiri atas"), false, false),
-                    ("↗", tr("Top right", "Kanan atas"), true, false),
-                    ("↙", tr("Bottom left", "Kiri bawah"), false, true),
-                    ("↘", tr("Bottom right", "Kanan bawah"), true, true),
-                ];
-                for (icon, name, right, bottom) in corners {
-                    if ui.button(icon).on_hover_text(name).clicked() {
-                        snap = Some((right, bottom));
-                    }
-                }
-                ui.checkbox(&mut self.cfg.anchor_top, tr("Messages from top", "Pesan dari atas"))
-                    .on_hover_text(tr(
-                        "On: chat starts at the top of the overlay and grows downward (for the top of the screen).\nOff: chat sticks to the bottom and grows upward.",
-                        "Aktif: chat mulai dari atas overlay dan bertambah ke bawah (untuk bagian atas layar).\nMati: chat menempel di bawah dan bertambah ke atas.",
-                    ));
-            });
-            ui.label(tr("YouTube channel (@name) or live link:", "Channel YouTube (@nama) atau link live:"));
-            ui.add(
-                egui::TextEdit::singleline(&mut self.input_buf)
-                    .hint_text(tr("@channelname", "@namachannel"))
-                    .desired_width(f32::INFINITY),
-            );
-            ui.horizontal_wrapped(|ui| {
-                connect = ui.button(tr("Connect", "Hubungkan")).clicked();
-                sample = ui.button(tr("Sample messages", "Contoh pesan")).clicked();
-                clear = ui.button(tr("Clear", "Bersihkan")).clicked();
-                done = ui.button(tr("Done", "Selesai")).clicked();
-                quit = ui.button(tr("Quit", "Keluar")).clicked();
-            });
-            ui.add(egui::Slider::new(&mut self.cfg.font_size, 12.0..=36.0).text(tr("Font size", "Ukuran huruf")));
-            let never = tr("Never", "Tidak pernah");
-            ui.add(
-                egui::Slider::new(&mut self.cfg.fade_secs, 0.0..=120.0)
-                    .text(tr("Hide messages after (seconds)", "Pesan hilang setelah (detik)"))
-                    .custom_formatter(move |v, _| if v <= 0.0 { never.into() } else { format!("{v:.0}") }),
-            );
-            ui.add(egui::Slider::new(&mut self.cfg.max_msgs, 1..=30).text(tr("Max messages", "Jumlah pesan maksimal")));
-            if self.cfg.fade_secs <= 0.0 {
-                ui.small(tr(
-                    "Messages never fade. Old ones are removed only when the max is exceeded.",
-                    "Pesan tidak hilang sendiri. Pesan lama baru terhapus jika melebihi jumlah maksimal.",
-                ));
-            }
-            ui.horizontal_wrapped(|ui| {
-                ui.label(tr("Highlight words:", "Sorot kata:"));
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.cfg.highlight)
-                        .hint_text(tr("name, nickname (comma-separated)", "nama, panggilan (pisah koma)"))
-                        .desired_width(180.0),
-                )
-                .on_hover_text(tr(
-                    "Messages containing these words get a purple background.\nThe @channel entered above is highlighted automatically.",
-                    "Pesan yang berisi kata ini diberi latar ungu.\n@channel yang diisi di atas otomatis ikut disorot.",
-                ));
-            });
-            ui.add(egui::Slider::new(&mut self.cfg.bg_opacity, 0.0..=1.0).text(tr("Background darkness", "Gelap latar")));
-            ui.checkbox(&mut self.cfg.hide_from_capture, tr("Hide from OBS Display Capture", "Sembunyikan dari Display Capture OBS"))
-                .on_hover_text(tr(
-                    "Not needed if OBS uses Game Capture.\nAvoid with games that use strict anti-cheat.",
-                    "Tidak perlu jika OBS memakai Game Capture.\nHindari untuk game dengan anti-cheat ketat.",
-                ));
-            ui.horizontal_wrapped(|ui| {
-                ui.label(tr("Show/hide hotkey:", "Hotkey tampil/sembunyi:"));
-                ui.add(egui::TextEdit::singleline(&mut self.cfg.hotkey_toggle).desired_width(110.0));
-            });
-            ui.horizontal_wrapped(|ui| {
-                ui.label(tr("Edit mode hotkey:", "Hotkey mode edit:"));
-                ui.add(egui::TextEdit::singleline(&mut self.cfg.hotkey_edit).desired_width(110.0));
-                apply_hk = ui
-                    .button(tr("Apply", "Terapkan"))
-                    .on_hover_text(tr("Examples: Ctrl+Alt+C, Alt+Shift+Z, Ctrl+Shift+F9", "Contoh: Ctrl+Alt+C, Alt+Shift+Z, Ctrl+Shift+F9"))
+
+        // ── Bilah atas: judul + Done (selalu terlihat) ──
+        let bar = Rect::from_min_size(full.min, vec2(full.width(), 34.0));
+        ui.painter().rect_filled(bar, 8.0, Color32::from_rgba_unmultiplied(255, 90, 90, 70));
+        ui.allocate_ui_with_layout(bar.size(), Layout::left_to_right(Align::Center), |ui| {
+            ui.add_space(10.0);
+            ui.label(egui::RichText::new(tr("Edit mode", "Mode edit")).strong().color(Color32::WHITE));
+            ui.label(egui::RichText::new(tr("drag to move", "seret untuk memindah")).small().color(muted));
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.add_space(6.0);
+                done = ui
+                    .add(egui::Button::new(egui::RichText::new(tr("Done", "Selesai")).strong().color(Color32::WHITE)).fill(accent))
+                    .on_hover_text(tr("Close edit mode and show the chat", "Tutup mode edit dan tampilkan chat"))
                     .clicked();
             });
-            ui.horizontal_wrapped(|ui| {
-                ui.label("Language / Bahasa:");
-                let current = i18n::LANGS.iter().find(|l| l.0 == self.cfg.language).map_or("English", |l| l.1);
-                egui::ComboBox::from_id_salt("language").selected_text(current).show_ui(ui, |ui| {
-                    for (code, name) in i18n::LANGS {
-                        if ui.selectable_label(self.cfg.language == code, name).clicked() && self.cfg.language != code {
-                            self.cfg.language = code.into();
-                            lang_changed = true;
+        });
+
+        // ── Tab: urutan langkah untuk pengguna baru ──
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ui.add_space(8.0);
+            for (tab, label) in [
+                (EditTab::Channel, tr("1. Channel", "1. Channel")),
+                (EditTab::Position, tr("2. Position", "2. Posisi")),
+                (EditTab::Look, tr("3. Look", "3. Tampilan")),
+                (EditTab::Settings, tr("More", "Lainnya")),
+            ] {
+                ui.selectable_value(&mut self.tab, tab, label);
+            }
+        });
+
+        // Isi tab bisa di-scroll; sisanya untuk pratinjau chat.
+        let content_h = (ui.available_height() - 120.0).max(90.0);
+        egui::ScrollArea::vertical().max_height(content_h).auto_shrink([false, true]).show(ui, |ui| {
+            Frame::none().inner_margin(Margin::symmetric(10.0, 6.0)).show(ui, |ui| match self.tab {
+                EditTab::Channel => {
+                    ui.label(tr("Your YouTube channel (@name) or a live link:", "Channel YouTube Anda (@nama) atau link live:"));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.input_buf)
+                            .hint_text(tr("@channelname", "@namachannel"))
+                            .desired_width(f32::INFINITY),
+                    );
+                    ui.horizontal_wrapped(|ui| {
+                        connect = ui.button(tr("Connect", "Hubungkan")).clicked();
+                        clear = ui.button(tr("Clear chat", "Bersihkan chat")).clicked();
+                    });
+                    ui.label(egui::RichText::new(format!("Status: {}", self.status)).color(muted));
+                    ui.small(tr(
+                        "With @channel the app finds your stream by itself, even if you go live later.",
+                        "Dengan @channel, aplikasi mencari live Anda sendiri, walaupun baru live nanti.",
+                    ));
+                }
+                EditTab::Position => {
+                    ui.label(tr("Where should the chat appear on your screen?", "Di mana chat tampil di layar Anda?"));
+                    ui.add_space(4.0);
+                    snap = self.screen_picker(ui, accent, muted);
+                    ui.add_space(4.0);
+                    ui.small(if self.cfg.corner.is_empty() {
+                        tr("Custom position. Pick a corner, or drag this panel anywhere.", "Posisi bebas. Pilih pojok, atau seret panel ini ke mana saja.")
+                    } else {
+                        tr("Or drag this panel anywhere. Drag the bottom-right corner to resize.", "Atau seret panel ini ke mana saja. Seret pojok kanan bawah untuk ubah ukuran.")
+                    });
+                }
+                EditTab::Look => {
+                    ui.add(egui::Slider::new(&mut self.cfg.font_size, 12.0..=36.0).text(tr("Font size", "Ukuran huruf")));
+                    let never = tr("Never", "Tidak pernah");
+                    ui.add(
+                        egui::Slider::new(&mut self.cfg.fade_secs, 0.0..=120.0)
+                            .text(tr("Hide after (seconds)", "Hilang setelah (detik)"))
+                            .custom_formatter(move |v, _| if v <= 0.0 { never.into() } else { format!("{v:.0}") }),
+                    );
+                    ui.add(egui::Slider::new(&mut self.cfg.max_msgs, 1..=30).text(tr("Max messages", "Jumlah pesan maksimal")));
+                    ui.add(egui::Slider::new(&mut self.cfg.bg_opacity, 0.0..=1.0).text(tr("Background darkness", "Gelap latar")));
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(tr("Highlight words:", "Sorot kata:"));
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.cfg.highlight)
+                                .hint_text(tr("name, nickname", "nama, panggilan"))
+                                .desired_width(150.0),
+                        )
+                        .on_hover_text(tr(
+                            "Messages with these words (comma-separated) get a purple background.\nYour @channel is highlighted automatically.",
+                            "Pesan berisi kata ini (pisah koma) diberi latar ungu.\n@channel Anda otomatis ikut disorot.",
+                        ));
+                    });
+                }
+                EditTab::Settings => {
+                    ui.checkbox(&mut self.cfg.anchor_top, tr("New messages appear from the top", "Pesan baru muncul dari atas"))
+                        .on_hover_text(tr(
+                            "Set automatically when you pick a corner.",
+                            "Diatur otomatis saat Anda memilih pojok.",
+                        ));
+                    ui.checkbox(&mut self.cfg.hide_from_capture, tr("Hide from OBS Display Capture", "Sembunyikan dari Display Capture OBS"))
+                        .on_hover_text(tr(
+                            "Not needed if OBS uses Game Capture.\nAlso hides the overlay from screenshots.\nAvoid with games that use strict anti-cheat.",
+                            "Tidak perlu jika OBS memakai Game Capture.\nOverlay juga tidak ikut di screenshot.\nHindari untuk game dengan anti-cheat ketat.",
+                        ));
+                    egui::Grid::new("hotkeys").num_columns(2).show(ui, |ui| {
+                        ui.label(tr("Show/hide hotkey", "Hotkey tampil/sembunyi"));
+                        ui.add(egui::TextEdit::singleline(&mut self.cfg.hotkey_toggle).desired_width(110.0));
+                        ui.end_row();
+                        ui.label(tr("Edit mode hotkey", "Hotkey mode edit"));
+                        ui.horizontal(|ui| {
+                            ui.add(egui::TextEdit::singleline(&mut self.cfg.hotkey_edit).desired_width(110.0));
+                            apply_hk = ui
+                                .button(tr("Apply", "Terapkan"))
+                                .on_hover_text(tr("Examples: Ctrl+Alt+C, Alt+Shift+Z, Ctrl+Shift+F9", "Contoh: Ctrl+Alt+C, Alt+Shift+Z, Ctrl+Shift+F9"))
+                                .clicked();
+                        });
+                        ui.end_row();
+                        ui.label("Language / Bahasa");
+                        let current = i18n::LANGS.iter().find(|l| l.0 == self.cfg.language).map_or("English", |l| l.1);
+                        egui::ComboBox::from_id_salt("language").selected_text(current).show_ui(ui, |ui| {
+                            for (code, name) in i18n::LANGS {
+                                if ui.selectable_label(self.cfg.language == code, name).clicked() && self.cfg.language != code {
+                                    self.cfg.language = code.into();
+                                    lang_changed = true;
+                                }
+                            }
+                        });
+                        ui.end_row();
+                    });
+                    let ver = env!("CARGO_PKG_VERSION");
+                    if packaged::is_packaged() {
+                        ui.small(format!("v{ver} ({})", tr("Microsoft Store, updates automatically", "Microsoft Store, update otomatis")));
+                    } else {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.checkbox(&mut self.cfg.check_updates, tr("Check for updates on startup", "Cek versi baru saat dibuka"));
+                            ui.small(format!("v{ver}"));
+                        });
+                        if let Some(v) = self.new_version() {
+                            ui.hyperlink_to(
+                                format!("{} {v} - {}", tr("New version", "Versi baru"), tr("click to download", "klik untuk mengunduh")),
+                                update::RELEASES_URL,
+                            );
                         }
                     }
-                });
-            });
-            let ver = env!("CARGO_PKG_VERSION");
-            if packaged::is_packaged() {
-                ui.small(format!("v{ver} ({})", tr("Microsoft Store, updates automatically", "Microsoft Store, update otomatis")));
-            } else {
-                ui.horizontal_wrapped(|ui| {
-                    ui.checkbox(&mut self.cfg.check_updates, tr("Check for updates on startup", "Cek versi baru saat dibuka"))
-                        .on_hover_text(tr(
-                            "Checks GitHub Releases once each time the app starts.",
-                            "Mengecek GitHub Releases sekali setiap aplikasi dibuka.",
-                        ));
-                    ui.small(format!("v{ver}"));
-                });
-                if let Some(v) = self.new_version() {
-                    ui.hyperlink_to(
-                        format!("{} {v} - {}", tr("New version", "Versi baru"), tr("click to download", "klik untuk mengunduh")),
-                        update::RELEASES_URL,
-                    );
+                    ui.small(tr(
+                        "All menus are also in the system tray icon (bottom right).",
+                        "Semua menu juga ada di ikon system tray (pojok kanan bawah).",
+                    ));
+                    quit = ui.button(tr("Quit app", "Keluar dari aplikasi")).clicked();
                 }
-            }
-            ui.small(format!("Status: {}", self.status));
-            ui.small(tr(
-                "All menus are also in the system tray icon (bottom right).",
-                "Semua menu juga ada di ikon system tray (pojok kanan bawah).",
-            ));
+            });
         });
-        });
+
+        // ── Pratinjau: kotak putus-putus = tampilan chat setelah Done ──
+        let rest = ui.available_rect_before_wrap();
+        let preview = Rect::from_min_max(rest.min + vec2(8.0, 10.0), rest.max - vec2(8.0, 8.0));
+        if preview.height() > 30.0 {
+            let pts = [preview.left_top(), preview.right_top(), preview.right_bottom(), preview.left_bottom(), preview.left_top()];
+            ui.painter().extend(egui::Shape::dashed_line(&pts, Stroke::new(1.5_f32, accent), 6.0, 4.0));
+            let label = tr("Chat preview", "Pratinjau chat");
+            let galley = ui.painter().layout_no_wrap(label.into(), FontId::proportional(11.0), Color32::WHITE);
+            let chip = Rect::from_min_size(preview.left_top() + vec2(10.0, -8.0), galley.size() + vec2(12.0, 2.0));
+            ui.painter().rect_filled(chip, 4.0, accent);
+            ui.painter().galley(chip.min + vec2(6.0, 1.0), galley, Color32::WHITE);
+            let inner = preview.shrink2(vec2(6.0, 10.0));
+            ui.allocate_new_ui(egui::UiBuilder::new().max_rect(inner), |ui| {
+                ui.set_clip_rect(inner);
+                self.draw_msgs(ui);
+            });
+        }
+
+        // Pegangan resize di pojok kanan bawah
+        let grip = Rect::from_min_max(full.max - vec2(22.0, 22.0), full.max);
+        let resp = ui.interact(grip, ui.id().with("resize_grip"), Sense::drag());
+        for k in 0..3 {
+            let o = 6.0 + k as f32 * 5.0;
+            ui.painter().line_segment(
+                [grip.max - vec2(o, 3.0), grip.max - vec2(3.0, o)],
+                Stroke::new(2.0_f32, accent),
+            );
+        }
+        if resp.drag_started() {
+            ctx.send_viewport_cmd(ViewportCommand::BeginResize(egui::viewport::ResizeDirection::SouthEast));
+        }
+
         if let Some((right, bottom)) = snap {
             self.snap_to_corner(ctx, right, bottom);
         }
@@ -721,33 +808,11 @@ impl App {
         if apply_hk {
             self.register_hotkeys();
         }
-        ui.separator();
-        self.draw_msgs(ui);
-
-        // Pegangan resize di pojok kanan bawah
-        let grip = Rect::from_min_max(full.max - vec2(22.0, 22.0), full.max);
-        let resp = ui.interact(grip, ui.id().with("resize_grip"), Sense::drag());
-        for k in 0..3 {
-            let o = 6.0 + k as f32 * 5.0;
-            ui.painter().line_segment(
-                [grip.max - vec2(o, 3.0), grip.max - vec2(3.0, o)],
-                Stroke::new(2.0_f32, accent),
-            );
-        }
-        if resp.drag_started() {
-            ctx.send_viewport_cmd(ViewportCommand::BeginResize(
-                egui::viewport::ResizeDirection::SouthEast,
-            ));
-        }
-
         if connect {
             self.connect(ctx);
         }
-        if sample {
-            self.add_samples();
-        }
         if clear {
-            self.msgs.clear();
+            self.msgs.retain(|m| m.sample);
         }
         if done {
             self.set_edit(ctx, false);
@@ -756,6 +821,50 @@ impl App {
             self.save_window(ctx);
             ctx.send_viewport_cmd(ViewportCommand::Close);
         }
+    }
+
+    /// Gambar layar mini dengan 4 pojok yang bisa diklik. Mengembalikan pojok yang diklik.
+    fn screen_picker(&self, ui: &mut egui::Ui, accent: Color32, muted: Color32) -> Option<(bool, bool)> {
+        let w = ui.available_width().min(280.0);
+        let (rect, _) = ui.allocate_exact_size(vec2(w, 118.0), Sense::hover());
+        let p = ui.painter();
+        p.rect(rect, 6.0, Color32::from_rgb(42, 42, 51), Stroke::new(1.5_f32, Color32::from_gray(110)));
+        p.text(rect.center(), Align2::CENTER_CENTER, tr("your screen", "layar Anda"), FontId::proportional(11.0), Color32::from_gray(120));
+
+        let zone = vec2(((w - 24.0) / 2.0).min(110.0), 40.0);
+        let mut picked = None;
+        for (right, bottom, label) in [
+            (false, false, tr("Top left", "Kiri atas")),
+            (true, false, tr("Top right", "Kanan atas")),
+            (false, true, tr("Bottom left", "Kiri bawah")),
+            (true, true, tr("Bottom right", "Kanan bawah")),
+        ] {
+            let min = egui::pos2(
+                if right { rect.max.x - 6.0 - zone.x } else { rect.min.x + 6.0 },
+                if bottom { rect.max.y - 6.0 - zone.y } else { rect.min.y + 6.0 },
+            );
+            let zr = Rect::from_min_size(min, zone);
+            let key = corner_key(right, bottom);
+            let resp = ui
+                .interact(zr, ui.id().with(("corner", key)), Sense::click())
+                .on_hover_cursor(egui::CursorIcon::PointingHand);
+            let active = self.cfg.corner == key;
+            let (fill, text_col) = if active {
+                (accent, Color32::WHITE)
+            } else if resp.hovered() {
+                (Color32::from_gray(75), Color32::WHITE)
+            } else {
+                (Color32::TRANSPARENT, muted)
+            };
+            let p = ui.painter();
+            p.rect(zr, 4.0, fill, Stroke::new(1.0_f32, if active { accent } else { Color32::from_gray(95) }));
+            let text = if active { format!("✓ {label}") } else { label.to_string() };
+            p.text(zr.center(), Align2::CENTER_CENTER, text, FontId::proportional(12.0), text_col);
+            if resp.clicked() {
+                picked = Some((right, bottom));
+            }
+        }
+        picked
     }
 }
 

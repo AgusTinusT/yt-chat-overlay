@@ -29,6 +29,8 @@ pub struct Config {
     /// true = pesan menempel di atas jendela dan bertambah ke bawah (cocok untuk pojok atas layar).
     /// false = menempel di bawah dan bertambah ke atas.
     pub anchor_top: bool,
+    /// Pojok yang dipilih di mode edit: "tl", "tr", "bl", "br", atau kosong (posisi bebas)
+    pub corner: String,
 }
 
 impl Default for Config {
@@ -51,6 +53,7 @@ impl Default for Config {
             highlight: String::new(),
             language: "en".into(),
             anchor_top: false,
+            corner: String::new(),
         }
     }
 }

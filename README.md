@@ -26,12 +26,14 @@ Get-FileHash .\YT-Chat-Overlay.exe
 Kolom *Hash* harus sama persis dengan angka di halaman Release. Kalau berbeda, jangan jalankan file tersebut.
 
 ## Cara pakai
-1. Jalankan `YT-Chat-Overlay.exe`. Saat pertama kali dibuka, aplikasi langsung masuk **mode edit**.
-2. Isi **@namachannel** Anda (disarankan) atau link live, lalu klik **Hubungkan**.
+1. Jalankan `YT-Chat-Overlay.exe`. Saat pertama kali dibuka, aplikasi langsung masuk **mode edit**. Mode edit punya beberapa tab yang diikuti berurutan:
+2. **1. Channel**: isi **@namachannel** Anda (disarankan) atau link live, lalu klik **Connect**.
    - Kalau diisi @channel, aplikasi otomatis mencari live yang sedang berjalan dan mengecek ulang tiap 15 detik. Jadi aplikasi boleh dibuka sebelum mulai live.
-3. Klik tombol **Position** (↖ ↗ ↙ ↘) untuk langsung menaruh overlay di pojok layar. Cara lain: seret bagian kosong mana pun di panel untuk memindah, dan seret pojok kanan bawah untuk mengubah ukuran.
-   - Untuk pojok atas, chat otomatis mulai dari atas overlay dan bertambah ke bawah (opsi **Messages from top**).
-4. Klik **Selesai**. Overlay sekarang transparan dan bisa diklik tembus.
+3. **2. Position**: klik pojok pada gambar layar (misalnya *Top right*). Overlay langsung menempel di pojok itu, dan chat mulai dari arah yang sesuai. Cara lain: seret panel ke mana saja, lalu seret pojok kanan bawah untuk mengubah ukuran.
+4. **3. Look**: atur ukuran huruf, berapa lama pesan tampil, dan kata yang disorot. Kotak **Chat preview** menunjukkan tampilan chat-nya.
+5. Klik **Done** di kanan atas. Overlay sekarang transparan dan bisa diklik tembus.
+
+Hotkey, bahasa, dan opsi lain ada di tab **More**.
 
 ## Kontrol
 **Ikon di system tray** (pojok kanan bawah taskbar). Tidak perlu keyboard:
