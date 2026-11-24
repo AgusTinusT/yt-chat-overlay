@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod config;
+mod emoji;
 mod i18n;
 mod packaged;
 mod update;
@@ -20,7 +21,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
-use youtube::{Event, Kind, Role};
+use youtube::{Event, Kind, Part, Role};
+use std::cell::RefCell;
 
 const ICON_PNG: &[u8] = include_bytes!("../assets/icon-256.png");
 
@@ -166,6 +168,10 @@ struct Msg {
     text: String,
     amount: Option<String>,
     kind: MsgKind,
+    /// Isi pesan dengan emoji bergambar; kosong = pakai 	ext
+    parts: Vec<Part>,
+    /// Gambar Super Sticker
+    sticker: Option<String>,
     t: Instant,
     /// Contoh pesan untuk pratinjau mode edit; dihapus saat Done
     sample: bool,
@@ -206,6 +212,8 @@ struct App {
     /// StartDrag sudah dikirim untuk tekanan mouse yang sedang berlangsung
     window_drag_sent: bool,
     tab: EditTab,
+    /// Gambar emoji/stiker (diunduh di latar belakang, di-cache)
+    emojis: RefCell<emoji::Cache>,
 }
 
 fn corner_key(right: bool, bottom: bool) -> &'static str {
@@ -246,6 +254,7 @@ impl App {
             update_notified: false,
             window_drag_sent: false,
             tab: EditTab::Channel,
+            emojis: RefCell::new(emoji::Cache::new(cc.egui_ctx.clone())),
         };
         // Versi Store diperbarui oleh Microsoft Store, jadi hanya versi portable yang cek GitHub.
         if !packaged::is_packaged() && app.cfg.check_updates {
@@ -312,6 +321,8 @@ impl App {
             text: self.status.clone(),
             amount: None,
             kind: MsgKind::System,
+            parts: Vec::new(),
+            sticker: None,
             t: Instant::now(),
             sample: false,
         });
@@ -350,6 +361,8 @@ impl App {
                             text: it.text,
                             amount: it.amount,
                             kind: MsgKind::Chat(it.kind, it.role),
+                            parts: it.parts,
+                            sticker: it.sticker,
                             t: Instant::now(),
                             sample: false,
                         });
@@ -503,10 +516,32 @@ impl App {
                 text: t.into(),
                 amount: amt.map(String::from),
                 kind: k,
+                parts: Vec::new(),
+                sticker: None,
                 t: now,
                 sample: true,
             });
         }
+        // Contoh pesan dengan emoji bergambar (emoji biasa + emoji khas YouTube)
+        let parts = vec![
+            Part::Text(tr("Love this stream ", "Seru banget streamnya ").into()),
+            Part::Emoji { url: "https://fonts.gstatic.com/s/e/notoemoji/15.1/2764/72.png".into(), alt: "❤".into() },
+            Part::Text(" ".into()),
+            Part::Emoji {
+                url: "https://yt3.ggpht.com/cktIaPxFwnrPwn-alHvnvedHLUJwbHi8HCK3AgbHpphrMAW99qw0bDfxuZagSY5ieE9BBrA=w48-h48-c-k-nd".into(),
+                alt: ":face-blue-smiling:".into(),
+            },
+        ];
+        self.msgs.push_back(Msg {
+            author: "Rina".into(),
+            text: youtube::plain_text(&parts),
+            amount: None,
+            kind: MsgKind::Chat(Kind::Text, Role::Member),
+            parts,
+            sticker: None,
+            t: now,
+            sample: true,
+        });
         // Contoh pesan yang disorot (kalau ada kata sorot)
         if let Some(w) = self.cfg.highlight_words().first() {
             self.msgs.push_back(Msg {
@@ -514,10 +549,64 @@ impl App {
                 text: if i18n::is_id() { format!("Halo {w}, salam dari Bandung!") } else { format!("Hello {w}, greetings from Bandung!") },
                 amount: None,
                 kind: MsgKind::Chat(Kind::Text, Role::Normal),
+                parts: Vec::new(),
+                sticker: None,
                 t: now,
                 sample: true,
             });
         }
+    }
+
+    /// Pesan berisi emoji/stiker: teks dipecah per kata supaya bisa pindah baris,
+    /// emoji digambar sejajar teks. Selama gambar belum dimuat, kodenya (":marah:") yang tampil.
+    fn draw_rich(&self, ui: &mut egui::Ui, m: &Msg, a: f32, name_col: Color32, bold: &FontId, regular: &FontId) {
+        let white = Color32::from_rgb(242, 242, 242);
+        let gold = Color32::from_rgb(255, 214, 0);
+        let label = |ui: &mut egui::Ui, s: &str, font: &FontId, c: Color32| {
+            ui.add(
+                egui::Label::new(egui::RichText::new(s).font(font.clone()).color(c.gamma_multiply(a)))
+                    .extend()
+                    .selectable(false),
+            );
+        };
+        let emoji_h = regular.size * 1.3;
+        let mut cache = self.emojis.borrow_mut();
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = vec2(0.0, 2.0);
+            label(ui, &m.author, bold, name_col);
+            if let Some(amt) = &m.amount {
+                label(ui, &format!(" [{amt}]"), bold, gold);
+            }
+            label(ui, ": ", regular, white);
+            for p in &m.parts {
+                match p {
+                    Part::Text(t) => {
+                        for w in t.split_inclusive(' ') {
+                            label(ui, w, regular, white);
+                        }
+                    }
+                    Part::Emoji { url, alt } => match cache.get(url) {
+                        Some(tex) => {
+                            ui.add_space(1.0);
+                            ui.add(
+                                egui::Image::new(&tex)
+                                    .fit_to_exact_size(vec2(emoji_h, emoji_h))
+                                    .tint(Color32::WHITE.gamma_multiply(a)),
+                            );
+                            ui.add_space(1.0);
+                        }
+                        None => label(ui, alt, regular, white),
+                    },
+                }
+            }
+            if let Some(url) = &m.sticker {
+                if let Some(tex) = cache.get(url) {
+                    ui.add_space(6.0);
+                    let s = regular.size * 3.5;
+                    ui.add(egui::Image::new(&tex).fit_to_exact_size(vec2(s, s)).tint(Color32::WHITE.gamma_multiply(a)));
+                }
+            }
+        });
     }
 
     fn draw_msgs(&self, ui: &mut egui::Ui) {
@@ -589,12 +678,17 @@ impl App {
                     job.append(&m.text, 0.0, fmt(&regular, white));
                 }
 
+                let has_images = m.sticker.is_some() || m.parts.iter().any(|p| matches!(p, Part::Emoji { .. }));
                 Frame::none()
                     .fill(bg.gamma_multiply(a))
                     .rounding(6.0)
                     .inner_margin(Margin::symmetric(8.0, 4.0))
                     .show(ui, |ui| {
-                        ui.add(egui::Label::new(job).wrap().selectable(false));
+                        if has_images {
+                            self.draw_rich(ui, m, a, name_col, &bold, &regular);
+                        } else {
+                            ui.add(egui::Label::new(job).wrap().selectable(false));
+                        }
                     });
             }
         });
@@ -922,6 +1016,7 @@ impl eframe::App for App {
         }
 
         self.pump_events();
+        self.emojis.get_mut().pump(ctx);
         self.check_update_notice();
         self.prune();
 

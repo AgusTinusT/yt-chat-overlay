@@ -26,10 +26,22 @@ pub enum Kind {
     Membership,
 }
 
+/// Potongan isi pesan: teks biasa atau emoji bergambar.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Part {
+    Text(String),
+    /// `alt` dipakai selama gambar belum dimuat atau kalau gagal (mis. ":marah:" atau "❤")
+    Emoji { url: String, alt: String },
+}
+
 pub struct ChatItem {
     pub id: String,
     pub author: String,
+    /// Isi pesan sebagai teks polos (emoji ditulis sebagai kodenya), untuk pencarian kata sorot
     pub text: String,
+    pub parts: Vec<Part>,
+    /// Gambar Super Sticker
+    pub sticker: Option<String>,
     pub role: Role,
     pub kind: Kind,
     pub amount: Option<String>,
@@ -277,27 +289,34 @@ fn parse_actions(v: &Value) -> Vec<ChatItem> {
     for a in arr {
         let Some(obj) = a["addChatItemAction"]["item"].as_object() else { continue };
         for (name, r) in obj {
-            let (kind, text) = match name.as_str() {
+            let mut sticker = None;
+            let (kind, parts) = match name.as_str() {
                 "liveChatTextMessageRenderer" => (Kind::Text, runs(&r["message"])),
                 "liveChatPaidMessageRenderer" => (Kind::Paid, runs(&r["message"])),
-                "liveChatPaidStickerRenderer" => (Kind::Paid, tr("sent a Super Sticker", "mengirim Super Sticker").to_string()),
+                "liveChatPaidStickerRenderer" => {
+                    sticker = image_url(&r["sticker"]["thumbnails"]);
+                    let label = tr("sent a Super Sticker", "mengirim Super Sticker");
+                    (Kind::Paid, vec![Part::Text(label.to_string())])
+                }
                 "liveChatMembershipItemRenderer" => {
-                    let mut t = runs(&r["headerSubtext"]);
+                    let mut p = runs(&r["headerSubtext"]);
                     let m = runs(&r["message"]);
                     if !m.is_empty() {
-                        if !t.is_empty() {
-                            t.push_str(" — ");
+                        if !p.is_empty() {
+                            p.push(Part::Text(" — ".into()));
                         }
-                        t.push_str(&m);
+                        p.extend(m);
                     }
-                    (Kind::Membership, t)
+                    (Kind::Membership, p)
                 }
                 _ => continue,
             };
             out.push(ChatItem {
                 id: r["id"].as_str().unwrap_or_default().to_string(),
                 author: r["authorName"]["simpleText"].as_str().unwrap_or("?").to_string(),
-                text,
+                text: plain_text(&parts),
+                parts,
+                sticker,
                 role: role(r),
                 kind,
                 amount: r["purchaseAmountText"]["simpleText"].as_str().map(String::from),
@@ -307,27 +326,47 @@ fn parse_actions(v: &Value) -> Vec<ChatItem> {
     out
 }
 
-fn runs(v: &Value) -> String {
+/// Teks polos dari potongan pesan (emoji ditulis sebagai `alt`-nya).
+pub fn plain_text(parts: &[Part]) -> String {
+    parts
+        .iter()
+        .map(|p| match p {
+            Part::Text(t) => t.as_str(),
+            Part::Emoji { alt, .. } => alt.as_str(),
+        })
+        .collect()
+}
+
+/// URL gambar terbesar dari daftar thumbnail YouTube ("//host/..." dijadikan https).
+fn image_url(thumbs: &Value) -> Option<String> {
+    let u = thumbs.as_array()?.last()?["url"].as_str()?;
+    Some(if u.starts_with("//") { format!("https:{u}") } else { u.to_string() })
+}
+
+fn runs(v: &Value) -> Vec<Part> {
     if let Some(s) = v["simpleText"].as_str() {
-        return s.to_string();
+        return vec![Part::Text(s.to_string())];
     }
-    let mut s = String::new();
+    let mut parts = Vec::new();
     for r in v["runs"].as_array().into_iter().flatten() {
         if let Some(t) = r["text"].as_str() {
-            s.push_str(t);
+            parts.push(Part::Text(t.to_string()));
         } else if let Some(e) = r.get("emoji") {
-            if e["isCustomEmoji"].as_bool() == Some(true) {
-                if let Some(sc) = e["shortcuts"][0].as_str() {
-                    s.push_str(sc);
-                }
-            } else if let Some(id) = e["emojiId"].as_str() {
-                s.push_str(id);
+            // Emoji member/khas YouTube: kodenya ":marah:". Emoji biasa: karakternya sendiri.
+            let alt = if e["isCustomEmoji"].as_bool() == Some(true) {
+                e["shortcuts"][0].as_str().unwrap_or("")
+            } else {
+                e["emojiId"].as_str().unwrap_or("")
+            }
+            .to_string();
+            match image_url(&e["image"]["thumbnails"]) {
+                Some(url) => parts.push(Part::Emoji { url, alt }),
+                None => parts.push(Part::Text(alt)),
             }
         }
     }
-    s
+    parts
 }
-
 fn role(r: &Value) -> Role {
     let mut role = Role::Normal;
     for b in r["authorBadges"].as_array().into_iter().flatten() {
@@ -413,6 +452,70 @@ mod tests {
         assert!(matches!(parse_input("https://youtube.com/live/jfKfPfyJRdk?si=x"), Some(Target::Video(v)) if v == "jfKfPfyJRdk"));
         assert!(matches!(parse_input("https://youtu.be/jfKfPfyJRdk"), Some(Target::Video(_))));
         assert!(parse_input("halo").is_none());
+    }
+
+    #[test]
+    fn parse_emoji_runs() {
+        let msg = json!({ "runs": [
+            { "text": "halo " },
+            { "emoji": { "emojiId": "UCx/abc", "isCustomEmoji": true, "shortcuts": [":marah:"],
+                "image": { "thumbnails": [ { "url": "https://yt3.ggpht.com/a=w24" }, { "url": "https://yt3.ggpht.com/a=w48" } ] } } },
+            { "emoji": { "emojiId": "❤", "shortcuts": [":heart:"],
+                "image": { "thumbnails": [ { "url": "//fonts.gstatic.com/s/e/notoemoji/15.1/2764/72.png" } ] } } },
+            { "emoji": { "emojiId": "😀" } }
+        ]});
+        let parts = runs(&msg);
+        assert_eq!(parts, vec![
+            Part::Text("halo ".into()),
+            Part::Emoji { url: "https://yt3.ggpht.com/a=w48".into(), alt: ":marah:".into() },
+            Part::Emoji { url: "https://fonts.gstatic.com/s/e/notoemoji/15.1/2764/72.png".into(), alt: "❤".into() },
+            Part::Text("😀".into()),
+        ]);
+        assert_eq!(plain_text(&parts), "halo :marah:❤😀");
+    }
+
+    /// Tampilkan struktur JSON emoji/stiker dari sebuah live:
+    /// $env:YT_VIDEO="ID"; cargo test --release dump_emoji -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn dump_emoji() {
+        fn walk(v: &Value, out: &mut Vec<Value>, stickers: &mut Vec<Value>) {
+            match v {
+                Value::Object(m) => {
+                    if let Some(e) = m.get("emoji") {
+                        out.push(e.clone());
+                    }
+                    if let Some(s) = m.get("liveChatPaidStickerRenderer") {
+                        stickers.push(s["sticker"].clone());
+                    }
+                    m.values().for_each(|x| walk(x, out, stickers));
+                }
+                Value::Array(a) => a.iter().for_each(|x| walk(x, out, stickers)),
+                _ => {}
+            }
+        }
+        let vid = std::env::var("YT_VIDEO").expect("YT_VIDEO");
+        let agent = ureq::AgentBuilder::new().timeout(Duration::from_secs(15)).user_agent(UA).build();
+        let html = get(&agent, &format!("https://www.youtube.com/live_chat?is_popout=1&v={vid}")).unwrap();
+        let data = extract_initial_data(&html).unwrap();
+        let (mut emojis, mut stickers) = (Vec::new(), Vec::new());
+        walk(&data["contents"]["liveChatRenderer"]["actions"], &mut emojis, &mut stickers);
+        let mut seen = std::collections::HashSet::new();
+        let (mut custom, mut unicode) = (0, 0);
+        for e in &emojis {
+            let id = e["emojiId"].as_str().unwrap_or("").to_string();
+            if !seen.insert(id) {
+                continue;
+            }
+            if e["isCustomEmoji"].as_bool() == Some(true) { custom += 1 } else { unicode += 1 }
+            if seen.len() <= 4 || (e["isCustomEmoji"].as_bool() != Some(true) && unicode <= 2) {
+                println!("{}\n", serde_json::to_string_pretty(e).unwrap());
+            }
+        }
+        println!("emoji runs: {} total, {} unik ({custom} custom, {unicode} unicode)", emojis.len(), seen.len());
+        for s in stickers.iter().take(1) {
+            println!("STICKER: {}", serde_json::to_string_pretty(s).unwrap());
+        }
     }
 
     /// Uji koneksi ke live 24/7 publik: cargo test --release -- --ignored --nocapture

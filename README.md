@@ -54,6 +54,7 @@ Aplikasi hanya bisa berjalan satu kali. Kalau dibuka lagi, jendela yang sudah be
 - Bahasa bawaan aplikasi adalah **English**. Untuk mengubahnya ke Bahasa Indonesia, buka mode edit lalu pilih **Language / Bahasa**.
 - Set game ke **Borderless / Windowed Fullscreen**. Di mode *Exclusive Fullscreen*, tidak ada jendela yang bisa tampil di atas game.
 - Pengaturan disimpan di `yt-chat-overlay.json`. Versi portable menyimpannya di folder yang sama dengan `.exe`. Versi Store menyimpannya di `%APPDATA%\YTChatOverlay`.
+- Emoji member channel, emoji khas YouTube, emoji biasa, dan Super Sticker tampil sebagai gambar. Selama gambar masih dimuat, kodenya (misalnya `:marah:`) yang tampil.
 - Warna: nama kuning = pemilik channel, biru = moderator, hijau = member. Latar biru = pertanyaan, latar oranye = Super Chat, latar ungu = pesan yang menyebut kata dari **Sorot kata** atau @channel Anda.
 - Supaya pesan tidak pernah hilang, geser slider **Pesan hilang setelah** ke kiri sampai muncul *Tidak pernah*. Pesan lama tetap dihapus kalau jumlahnya melebihi **Jumlah pesan maksimal**.
 
@@ -83,7 +84,8 @@ Untuk game kompetitif dengan anti-cheat kernel, sebaiknya tutup overlay saat ber
 This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
 
 Dalam bahasa Indonesia:
-- Aplikasi hanya terhubung ke **youtube.com** untuk membaca live chat publik dari channel atau link yang Anda isi sendiri.
+- Aplikasi terhubung ke **youtube.com** untuk membaca live chat publik dari channel atau link yang Anda isi sendiri.
+- Gambar emoji dan Super Sticker diunduh dari server gambar YouTube/Google (**yt3.ggpht.com**, **fonts.gstatic.com**, **lh3.googleusercontent.com**), sama seperti yang dilakukan browser saat membuka live chat. Gambar disimpan sebagai cache di `%LOCALAPPDATA%\YTChatOverlay\emoji` dan boleh dihapus kapan saja.
 - Versi portable mengecek versi terbaru ke **api.github.com** sekali setiap kali dibuka. Pengecekan ini tidak mengirim data pribadi dan bisa dimatikan di mode edit. Versi Store tidak melakukannya.
 - Tidak ada login, tidak ada akun, tidak ada telemetri atau analitik, dan tidak ada data yang dikirim ke server lain.
 - Pengaturan hanya disimpan di komputer Anda, di file `yt-chat-overlay.json`.
