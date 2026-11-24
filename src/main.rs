@@ -203,6 +203,8 @@ struct App {
     reg_toggle: Option<HotKey>,
     reg_edit: Option<HotKey>,
     tray: Option<Tray>,
+    tray_rx: Receiver<TrayIconEvent>,
+    menu_rx: Receiver<MenuEvent>,
     show_event: isize,
     hwnd: Option<isize>,
     affinity_applied: Option<bool>,
@@ -232,6 +234,18 @@ impl App {
     fn new(cc: &eframe::CreationContext, cfg: Config, show_event: isize) -> Self {
         cc.egui_ctx.set_visuals(egui::Visuals::dark());
         let (tx, rx) = channel();
+        let (tray_tx, tray_rx) = channel();
+        let tray_ctx = cc.egui_ctx.clone();
+        TrayIconEvent::set_event_handler(Some(move |ev| {
+            let _ = tray_tx.send(ev);
+            tray_ctx.request_repaint();
+        }));
+        let (menu_tx, menu_rx) = channel();
+        let menu_ctx = cc.egui_ctx.clone();
+        MenuEvent::set_event_handler(Some(move |ev| {
+            let _ = menu_tx.send(ev);
+            menu_ctx.request_repaint();
+        }));
         let mut app = App {
             input_buf: cfg.input.clone(),
             cfg,
@@ -248,6 +262,8 @@ impl App {
             reg_toggle: None,
             reg_edit: None,
             tray: build_tray(),
+            tray_rx,
+            menu_rx,
             show_event,
             hwnd: None,
             affinity_applied: None,
@@ -436,6 +452,13 @@ impl App {
             }
         });
         self.cfg.save();
+    }
+
+    fn quit(&mut self, ctx: &egui::Context) {
+        self.save_window(ctx);
+        self.tray.take();
+        ctx.send_viewport_cmd(ViewportCommand::Close);
+        ctx.request_repaint();
     }
 
     /// Mulai memindah jendela hanya jika tombol kiri ditahan dan mouse sudah bergeser beberapa piksel.
@@ -917,8 +940,7 @@ impl App {
             self.set_edit(ctx, false);
         }
         if quit {
-            self.save_window(ctx);
-            ctx.send_viewport_cmd(ViewportCommand::Close);
+            self.quit(ctx);
         }
     }
 
@@ -988,7 +1010,7 @@ impl eframe::App for App {
         }
 
         // Ikon system tray: klik kiri = mode edit, klik kanan = menu
-        while let Ok(ev) = TrayIconEvent::receiver().try_recv() {
+        while let Ok(ev) = self.tray_rx.try_recv() {
             if let TrayIconEvent::Click {
                 button: MouseButton::Left,
                 button_state: MouseButtonState::Up,
@@ -998,7 +1020,7 @@ impl eframe::App for App {
                 self.set_edit(ctx, !self.edit);
             }
         }
-        while let Ok(ev) = MenuEvent::receiver().try_recv() {
+        while let Ok(ev) = self.menu_rx.try_recv() {
             let Some(t) = &self.tray else { continue };
             if ev.id == *t.toggle.id() {
                 if self.edit {
@@ -1010,8 +1032,8 @@ impl eframe::App for App {
             } else if ev.id == *t.clear.id() {
                 self.msgs.clear();
             } else if ev.id == *t.quit.id() {
-                self.save_window(ctx);
-                ctx.send_viewport_cmd(ViewportCommand::Close);
+                self.quit(ctx);
+                return;
             }
         }
 
