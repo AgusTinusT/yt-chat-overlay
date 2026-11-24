@@ -54,6 +54,7 @@ Aplikasi hanya bisa berjalan satu kali. Kalau dibuka lagi, jendela yang sudah be
 - Bahasa bawaan aplikasi adalah **English**. Untuk mengubahnya ke Bahasa Indonesia, buka mode edit lalu pilih **Language / Bahasa**.
 - Set game ke **Borderless / Windowed Fullscreen**. Di mode *Exclusive Fullscreen*, tidak ada jendela yang bisa tampil di atas game.
 - Pengaturan disimpan di `yt-chat-overlay.json`. Versi portable menyimpannya di folder yang sama dengan `.exe`. Versi Store menyimpannya di `%APPDATA%\YTChatOverlay`.
+- Nama dan pesan berhuruf Korea, Jepang, Mandarin, Thai, dan India ditampilkan dengan font bawaan Windows. Font ini baru dimuat saat pertama kali dibutuhkan, supaya aplikasi tetap ringan.
 - Emoji member channel, emoji khas YouTube, emoji biasa, dan Super Sticker tampil sebagai gambar. Selama gambar masih dimuat, kodenya (misalnya `:marah:`) yang tampil.
 - Warna: nama kuning = pemilik channel, biru = moderator, hijau = member. Latar biru = pertanyaan, latar oranye = Super Chat, latar ungu = pesan yang menyebut kata dari **Sorot kata** atau @channel Anda.
 - Supaya pesan tidak pernah hilang, geser slider **Pesan hilang setelah** ke kiri sampai muncul *Tidak pernah*. Pesan lama tetap dihapus kalau jumlahnya melebihi **Jumlah pesan maksimal**.

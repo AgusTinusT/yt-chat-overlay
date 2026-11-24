@@ -2,6 +2,7 @@
 
 mod config;
 mod emoji;
+mod fonts;
 mod i18n;
 mod packaged;
 mod update;
@@ -10,7 +11,7 @@ mod youtube;
 use config::Config;
 use i18n::tr;
 use eframe::egui::{
-    self, text::LayoutJob, vec2, Align, Align2, Color32, FontData, FontDefinitions, FontFamily,
+    self, text::LayoutJob, vec2, Align, Align2, Color32, FontFamily,
     FontId, Frame, Layout, Margin, Rect, Sense, Stroke, TextFormat, ViewportCommand,
 };
 use global_hotkey::{hotkey::HotKey, GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
@@ -214,6 +215,8 @@ struct App {
     tab: EditTab,
     /// Gambar emoji/stiker (diunduh di latar belakang, di-cache)
     emojis: RefCell<emoji::Cache>,
+    /// Font cadangan untuk huruf Korea/Jepang/Mandarin/Thai/India, dimuat saat dibutuhkan
+    fonts: fonts::Fonts,
 }
 
 fn corner_key(right: bool, bottom: bool) -> &'static str {
@@ -227,7 +230,6 @@ fn corner_key(right: bool, bottom: bool) -> &'static str {
 
 impl App {
     fn new(cc: &eframe::CreationContext, cfg: Config, show_event: isize) -> Self {
-        setup_fonts(&cc.egui_ctx);
         cc.egui_ctx.set_visuals(egui::Visuals::dark());
         let (tx, rx) = channel();
         let mut app = App {
@@ -255,6 +257,7 @@ impl App {
             window_drag_sent: false,
             tab: EditTab::Channel,
             emojis: RefCell::new(emoji::Cache::new(cc.egui_ctx.clone())),
+            fonts: fonts::Fonts::setup(&cc.egui_ctx),
         };
         // Versi Store diperbarui oleh Microsoft Store, jadi hanya versi portable yang cek GitHub.
         if !packaged::is_packaged() && app.cfg.check_updates {
@@ -338,7 +341,7 @@ impl App {
         youtube::spawn(self.cfg.input.clone(), gen, self.gen.clone(), self.tx.clone(), ctx.clone());
     }
 
-    fn pump_events(&mut self) {
+    fn pump_events(&mut self, ctx: &egui::Context) {
         let cur = self.gen.load(Ordering::SeqCst);
         while let Ok(ev) = self.rx.try_recv() {
             match ev {
@@ -356,6 +359,8 @@ impl App {
                                 }
                             }
                         }
+                        self.fonts.ensure_for(ctx, &it.author);
+                        self.fonts.ensure_for(ctx, &it.text);
                         self.msgs.push_back(Msg {
                             author: it.author,
                             text: it.text,
@@ -1015,7 +1020,7 @@ impl eframe::App for App {
             self.set_edit(ctx, true);
         }
 
-        self.pump_events();
+        self.pump_events(ctx);
         self.emojis.get_mut().pump(ctx);
         self.check_update_notice();
         self.prune();
@@ -1045,29 +1050,6 @@ impl eframe::App for App {
         let ms = if self.msgs.is_empty() || self.hidden { 250 } else { 66 };
         ctx.request_repaint_after(Duration::from_millis(ms));
     }
-}
-
-fn setup_fonts(ctx: &egui::Context) {
-    let mut fonts = FontDefinitions::default();
-    let dir = std::path::Path::new(r"C:\Windows\Fonts");
-    let mut prop = fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
-
-    if let Ok(b) = std::fs::read(dir.join("segoeui.ttf")) {
-        fonts.font_data.insert("segoe".into(), FontData::from_owned(b));
-        prop.insert(0, "segoe".into());
-    }
-    if let Ok(b) = std::fs::read(dir.join("seguisym.ttf")) {
-        fonts.font_data.insert("segoe_sym".into(), FontData::from_owned(b));
-        prop.push("segoe_sym".into());
-    }
-    let mut bold = prop.clone();
-    if let Ok(b) = std::fs::read(dir.join("segoeuib.ttf")) {
-        fonts.font_data.insert("segoe_bold".into(), FontData::from_owned(b));
-        bold.insert(0, "segoe_bold".into());
-    }
-    fonts.families.insert(FontFamily::Proportional, prop);
-    fonts.families.insert(FontFamily::Name("bold".into()), bold);
-    ctx.set_fonts(fonts);
 }
 
 #[cfg(test)]
